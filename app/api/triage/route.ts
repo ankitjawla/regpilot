@@ -29,8 +29,11 @@ export async function POST(req: NextRequest) {
       (typeof title === "string" && title.trim().slice(0, 120)) ||
       text.trim().replace(/\s+/g, " ").slice(0, 80);
 
-    // --- Guardrail (redaction happens before ANY model sees the text)
-    const { guardrail, redacted } = await jevGuardrail(text);
+    const origin = req.nextUrl.origin;
+
+    // --- Guardrail (Jev-first: local model, Azure fallback; redaction happens
+    //     before ANY model sees the text)
+    const { guardrail, redacted, jev } = await jevGuardrail(text, origin);
 
     if (guardrail.block) {
       const rows = await query<{ id: number }>(
@@ -39,12 +42,17 @@ export async function POST(req: NextRequest) {
         [cleanTitle, redacted]
       );
       const itemId = rows[0].id;
-      await audit(itemId, "jev-small", "guardrail.block", guardrail.reason);
-      return NextResponse.json({ blocked: true, itemId, guardrail });
+      await audit(itemId, jev.model, "guardrail.block", guardrail.reason);
+      return NextResponse.json({
+        blocked: true,
+        itemId,
+        guardrail,
+        jev: { model: jev.model, latencyMs: jev.latencyMs },
+      });
     }
 
-    // --- Triage (small model)
-    const triage = await jevClassify(redacted);
+    // --- Triage (Jev-first; reuses the guardrail's local result — one call)
+    const triage = await jevClassify(redacted, origin, jev.full);
     const route = routeDecision(triage);
 
     const rows = await query<{ id: number }>(
@@ -63,8 +71,8 @@ export async function POST(req: NextRequest) {
     );
     const itemId = rows[0].id;
 
-    await audit(itemId, "jev-small", "guardrail.pass", guardrail.reason);
-    await audit(itemId, "jev-small", "triage.classify", JSON.stringify(triage));
+    await audit(itemId, jev.model, "guardrail.pass", guardrail.reason);
+    await audit(itemId, triage.jev.model, "triage.classify", JSON.stringify(triage));
     await audit(
       itemId,
       "router",
@@ -81,7 +89,14 @@ export async function POST(req: NextRequest) {
         injectionSuspected: guardrail.injectionSuspected,
         reason: guardrail.reason,
       },
-      triage,
+      triage: {
+        category: triage.category,
+        urgency: triage.urgency,
+        jurisdiction: triage.jurisdiction,
+        confidence: triage.confidence,
+        rationale: triage.rationale,
+      },
+      jev: { model: triage.jev.model, latencyMs: triage.jev.latencyMs },
       route: { fastPath: route.fastPath, model: route.model, reason: route.reason },
     });
   } catch (e) {

@@ -9,10 +9,14 @@ export type RedactResult = {
 const PATTERNS: { label: string; re: RegExp }[] = [
   { label: "SSN", re: /\b\d{3}-\d{2}-\d{4}\b/g },
   {
+    // The keyword must be followed by a token containing a digit, so
+    // "Customer complaint" no longer false-positives as an account number.
     label: "account number",
-    re: /\b(?:account|acct\.?|member|customer)\s*(?:no\.?|number|#)?\s*:?\s*[A-Za-z0-9][A-Za-z0-9-]{3,}\b/gi,
+    re: /\b(?:account|acct\.?|member|customer)\s*(?:no\.?|number|#)?\s*:?\s*(?=[A-Za-z0-9-]*\d)[A-Za-z0-9][A-Za-z0-9-]{3,}\b/gi,
   },
-  { label: "phone number", re: /\b(?:\(\d{3}\)\s?|\d{3}[-.\s])\d{3}[-.\s]\d{4}\b/g },
+  // No leading \b before "(...)": there is no word boundary between a space
+  // and "(", so the old pattern missed "(555) 010-2030" after a space.
+  { label: "phone number", re: /(?:\(\d{3}\)\s?|\b\d{3}[-.\s])\d{3}[-.\s]\d{4}\b/g },
   {
     label: "email address",
     re: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,

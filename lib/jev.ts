@@ -58,11 +58,105 @@ function truncate(s: string, n = MAX_INPUT) {
   return s.length > n ? s.slice(0, n) + "\n[…truncated]" : s;
 }
 
+// ------------------------------------------------- Jev local model (primary)
+// A real trained small model (TF-IDF + logistic regression, see jev/) served by
+// the /api/jev Python serverless function. No API key, no per-call cost.
+// Azure small deployment is the fallback when the local endpoint is unreachable.
+
+export const JEV_LOCAL_MODEL = "jev-local-v1";
+
+export type JevInfo = {
+  model: string; // "jev-local-v1" or the Azure small-deployment label
+  latencyMs: number | null;
+};
+
+export type JevLocalFull = {
+  category: string;
+  category_confidence: number;
+  urgency: string;
+  urgency_confidence: number;
+  jurisdiction: string;
+  jurisdiction_confidence: number;
+  injection_suspected: boolean;
+  injection_confidence: number;
+  pii_found: string[];
+  redacted_text: string;
+  overall_confidence: number;
+  latency_ms: number;
+  model: string;
+};
+
+function jevBaseUrl(origin?: string): string {
+  if (origin) return origin;
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return "http://localhost:3000";
+}
+
+async function jevLocalFull(rawText: string, origin?: string): Promise<JevLocalFull> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 25000);
+  try {
+    const r = await fetch(`${jevBaseUrl(origin)}/api/jev`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: rawText.slice(0, 8000) }),
+      signal: ctrl.signal,
+    });
+    if (!r.ok) throw new Error(`jev-local HTTP ${r.status}`);
+    return (await r.json()) as JevLocalFull;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function triageFromLocal(j: JevLocalFull): Triage {
+  return {
+    category: j.category as Triage["category"],
+    urgency: j.urgency as Triage["urgency"],
+    jurisdiction: j.jurisdiction as Triage["jurisdiction"],
+    confidence: j.overall_confidence,
+    rationale:
+      `Jev local model v1 (trained TF-IDF + logistic regression): ` +
+      `${j.category} ${j.category_confidence.toFixed(2)}, ` +
+      `${j.urgency} urgency ${j.urgency_confidence.toFixed(2)}, ` +
+      `${j.jurisdiction} ${j.jurisdiction_confidence.toFixed(2)}.`,
+  };
+}
+
 // ---------------------------------------------------------------- guardrail
-export async function jevGuardrail(rawText: string): Promise<{
+export async function jevGuardrail(
+  rawText: string,
+  origin?: string
+): Promise<{
   guardrail: Guardrail;
   redacted: string;
+  jev: JevInfo & { full: JevLocalFull | null };
 }> {
+  // PRIMARY: the local Jev model (regex redaction + classifiers, no API key).
+  try {
+    const j = await jevLocalFull(rawText, origin);
+    const block = j.injection_suspected;
+    const reason = block
+      ? `Blocked: suspected prompt injection (jev-local-v1, injection confidence ${j.injection_confidence.toFixed(2)})`
+      : j.pii_found.length > 0
+        ? `Passed with redaction (${j.pii_found.join(", ")}) — jev-local-v1`
+        : "Passed — no PII or injection signals (jev-local-v1)";
+    return {
+      redacted: j.redacted_text,
+      guardrail: {
+        piiFound: j.pii_found.length > 0,
+        redactions: j.pii_found,
+        injectionSuspected: block,
+        block,
+        reason,
+      },
+      jev: { model: JEV_LOCAL_MODEL, latencyMs: j.latency_ms, full: j },
+    };
+  } catch {
+    // Fall through to the Azure small-deployment path below.
+  }
+
+  // FALLBACK: deterministic redaction + regex screen + Azure small model.
   // 1. Deterministic redaction FIRST — raw text never reaches any model.
   const { redacted, redactions, piiFound } = redactPII(rawText);
 
@@ -120,11 +214,34 @@ export async function jevGuardrail(rawText: string): Promise<{
       block,
       reason,
     },
+    jev: { model: smallModelLabel(), latencyMs: null, full: null },
   };
 }
 
 // ------------------------------------------------------------------ triage
-export async function jevClassify(redactedText: string): Promise<Triage> {
+export async function jevClassify(
+  redactedText: string,
+  origin?: string,
+  localFull?: JevLocalFull | null
+): Promise<Triage & { jev: JevInfo }> {
+  // PRIMARY: reuse the guardrail's local result, or call the local endpoint.
+  if (localFull) {
+    return {
+      ...triageFromLocal(localFull),
+      jev: { model: JEV_LOCAL_MODEL, latencyMs: localFull.latency_ms },
+    };
+  }
+  try {
+    const j = await jevLocalFull(redactedText, origin);
+    return {
+      ...triageFromLocal(j),
+      jev: { model: JEV_LOCAL_MODEL, latencyMs: j.latency_ms },
+    };
+  } catch {
+    // Fall through to the Azure small-deployment path below.
+  }
+
+  // FALLBACK: Azure small deployment.
   const out = await azureChat({
     deployment: smallDeployment(),
     maxTokens: 500,
@@ -145,7 +262,7 @@ export async function jevClassify(redactedText: string): Promise<Triage> {
   });
   const t = parseJson<Triage>(out);
   t.confidence = Math.min(1, Math.max(0, Number(t.confidence) || 0));
-  return t;
+  return { ...t, jev: { model: smallModelLabel(), latencyMs: null } };
 }
 
 // ------------------------------------------------------------------- route
@@ -241,8 +358,42 @@ export async function draftMemo(
 export async function jevConfidence(
   memo: string,
   obligations: Obligation[],
-  triage: Triage
-): Promise<ConfidenceScore> {
+  triage: Triage,
+  origin?: string
+): Promise<ConfidenceScore & { model: string }> {
+  // PRIMARY: local heuristic score from /api/jev (structural completeness +
+  // triage confidence — deterministic, no API key). Documented in jev/README.
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 25000);
+    try {
+      const r = await fetch(`${jevBaseUrl(origin)}/api/jev`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          op: "score",
+          memo: memo.slice(0, 8000),
+          obligations_count: obligations.length,
+          triage_confidence: triage.confidence,
+        }),
+        signal: ctrl.signal,
+      });
+      if (!r.ok) throw new Error(`jev-local HTTP ${r.status}`);
+      const s = (await r.json()) as { score: number; reasons: string[] };
+      const score = Math.min(1, Math.max(0, Number(s.score) || 0));
+      return {
+        score,
+        reasons: Array.isArray(s.reasons) ? s.reasons : [],
+        model: JEV_LOCAL_MODEL,
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    // Fall through to the Azure small-deployment path below.
+  }
+
+  // FALLBACK: Azure small deployment.
   const out = await azureChat({
     deployment: smallDeployment(),
     maxTokens: 500,
@@ -266,7 +417,7 @@ export async function jevConfidence(
   const c = parseJson<ConfidenceScore>(out);
   c.score = Math.min(1, Math.max(0, Number(c.score) || 0));
   if (!Array.isArray(c.reasons)) c.reasons = [];
-  return c;
+  return { ...c, model: smallModelLabel() };
 }
 
 // -------------------------------------------------------------------- gate

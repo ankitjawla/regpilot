@@ -4,6 +4,16 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Card, SectionTitle, Stat, StatusBadge, ConfidenceBadge, UrgencyBadge, Badge } from "@/components/ui";
 
+type JevMeta = {
+  version: string;
+  trained_at: string;
+  total_size_mb: number;
+  tasks: Record<
+    string,
+    { accuracy: number; n_train: number; n_holdout: number; classes: string[] }
+  >;
+};
+
 type Stats = {
   total: number;
   fastPathPct: number;
@@ -26,12 +36,17 @@ type Stats = {
 export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState("");
+  const [jevMeta, setJevMeta] = useState<JevMeta | null>(null);
 
   useEffect(() => {
     fetch("/api/stats")
       .then((r) => r.json())
       .then((d) => (d.error ? setError(d.error) : setStats(d)))
       .catch(() => setError("Could not load dashboard."));
+    fetch("/api/jevmeta")
+      .then((r) => r.json())
+      .then((d) => (d.unavailable ? null : setJevMeta(d)))
+      .catch(() => {});
   }, []);
 
   return (
@@ -126,6 +141,45 @@ export default function Dashboard() {
           </div>
         </Card>
       </div>
+
+      <Card className="mt-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <SectionTitle>How Jev works</SectionTitle>
+          {jevMeta && <Badge color="green">{jevMeta.version} · local, no API calls</Badge>}
+        </div>
+        {!jevMeta ? (
+          <p className="text-sm text-stone-500">Loading model info…</p>
+        ) : (
+          <div>
+            <p className="text-sm text-stone-600">
+              A trained small model (TF-IDF + logistic regression, probability-calibrated)
+              runs inside this app and handles triage, injection screening and the
+              confidence gate — the large Azure model only drafts memos.{" "}
+              {jevMeta.total_size_mb} MB on disk, trained{" "}
+              {new Date(jevMeta.trained_at).toLocaleDateString()}.
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {Object.entries(jevMeta.tasks).map(([task, t]) => (
+                <div key={task} className="rounded-lg bg-stone-50 p-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-stone-500">
+                    {task}
+                  </div>
+                  <div className="mt-1 text-lg font-bold">
+                    {(t.accuracy * 100).toFixed(1)}%
+                  </div>
+                  <div className="text-xs text-stone-500">
+                    holdout accuracy · {t.n_train + t.n_holdout} examples
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-stone-500">
+              Trained on synthetic fictional regulatory text (see jev/README.md). The audit
+              log records whether each step used jev-local-v1 or the Azure fallback.
+            </p>
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

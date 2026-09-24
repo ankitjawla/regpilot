@@ -59,9 +59,14 @@ export async function POST(req: NextRequest) {
     );
     await audit(itemId, modelUsed, "memo.draft", item.fast_path ? "fast path (small model)" : "full analysis (large model)");
 
-    // --- Confidence (small model gate)
-    const confidence = await jevConfidence(memo, obligations, triage);
-    await audit(itemId, "jev-small", "confidence.score", `score=${confidence.score.toFixed(2)}: ${confidence.reasons.slice(0, 2).join("; ")}`);
+    // --- Confidence (Jev-first: local score, Azure fallback)
+    const confidence = await jevConfidence(
+      memo,
+      obligations,
+      triage,
+      req.nextUrl.origin
+    );
+    await audit(itemId, confidence.model, "confidence.score", `score=${confidence.score.toFixed(2)}: ${confidence.reasons.slice(0, 2).join("; ")}`);
 
     // --- Gate
     const gate = gateDecision(confidence.score);

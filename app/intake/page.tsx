@@ -18,6 +18,7 @@ type TriageResult = {
     confidence: number;
     rationale: string;
   };
+  jev?: { model: string; latencyMs: number | null };
   route?: { fastPath: boolean; model: string; reason: string };
 };
 
@@ -25,7 +26,7 @@ type AnalyzeResult = {
   obligations: { owner: string; action: string; due_date: string; source_quote: string }[];
   memo: string;
   modelUsed: string;
-  confidence: { score: number; reasons: string[] };
+  confidence: { score: number; reasons: string[]; model?: string };
   gate: { status: string; label: string };
   status: string;
 };
@@ -177,7 +178,15 @@ export default function Intake() {
       {triage && (
         <div className="mt-6 space-y-4">
           <Card className={triage.blocked ? "border-red-300" : ""}>
-            <SectionTitle>1 · Guardrail (Jev small model + regex)</SectionTitle>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <SectionTitle>1 · Guardrail (Jev small model + regex)</SectionTitle>
+              {triage.jev && (
+                <Badge color={triage.jev.model === "jev-local-v1" ? "green" : "slate"}>
+                  {triage.jev.model === "jev-local-v1" ? "Jev local model" : "Azure fallback"}
+                  {triage.jev.latencyMs != null ? ` · ${triage.jev.latencyMs}ms` : ""}
+                </Badge>
+              )}
+            </div>
             {triage.blocked ? (
               <div>
                 <Badge color="red">Blocked</Badge>
@@ -202,7 +211,15 @@ export default function Intake() {
           {!triage.blocked && triage.triage && triage.route && (
             <>
               <Card>
-                <SectionTitle>2 · Triage (Jev small model)</SectionTitle>
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <SectionTitle>2 · Triage (Jev small model)</SectionTitle>
+                  {triage.jev && (
+                    <Badge color={triage.jev.model === "jev-local-v1" ? "green" : "slate"}>
+                      {triage.jev.model === "jev-local-v1" ? "Jev local model" : "Azure fallback"}
+                      {triage.jev.latencyMs != null ? ` · ${triage.jev.latencyMs}ms` : ""}
+                    </Badge>
+                  )}
+                </div>
                 <div className="flex flex-wrap gap-2 text-sm">
                   <Badge color="blue">{triage.triage.category}</Badge>
                   <UrgencyBadge urgency={triage.triage.urgency} />
@@ -282,7 +299,14 @@ export default function Intake() {
           </Card>
 
           <Card>
-            <SectionTitle>5 · Confidence gate (Jev small model)</SectionTitle>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <SectionTitle>5 · Confidence gate (Jev small model)</SectionTitle>
+              {analysis.confidence.model && (
+                <Badge color={analysis.confidence.model === "jev-local-v1" ? "green" : "slate"}>
+                  {analysis.confidence.model}
+                </Badge>
+              )}
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm text-stone-600">Score</span>
               <ConfidenceBadge score={analysis.confidence.score} />

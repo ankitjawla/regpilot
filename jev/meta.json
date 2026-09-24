@@ -1,0 +1,64 @@
+{
+  "version": "jev-local-v1",
+  "trained_at": "2026-09-24T13:40:43.178096+00:00",
+  "approach": "TF-IDF (15k features, 1-2 grams) + LogisticRegression, probability-calibrated with CalibratedClassifierCV (sigmoid, cv=3). Trained on template-synthesized fictional regulatory text.",
+  "tasks": {
+    "category": {
+      "accuracy": 1.0,
+      "n_train": 960,
+      "n_holdout": 240,
+      "classes": [
+        "AML-BSA",
+        "Capital",
+        "Consumer Compliance",
+        "Liquidity",
+        "Operational Risk",
+        "Other"
+      ],
+      "size_kb": 671.0
+    },
+    "urgency": {
+      "accuracy": 1.0,
+      "n_train": 960,
+      "n_holdout": 240,
+      "classes": [
+        "critical",
+        "high",
+        "low",
+        "medium"
+      ],
+      "size_kb": 496.9
+    },
+    "jurisdiction": {
+      "accuracy": 0.9542,
+      "n_train": 960,
+      "n_holdout": 240,
+      "classes": [
+        "CFPB",
+        "Federal Reserve",
+        "FinCEN",
+        "OCC",
+        "Other",
+        "SEC",
+        "State"
+      ],
+      "size_kb": 756.8
+    },
+    "injection": {
+      "accuracy": 0.8977,
+      "n_train": 360,
+      "n_holdout": 88,
+      "classes": [
+        "0",
+        "1"
+      ],
+      "size_kb": 151.8
+    }
+  },
+  "pii_check": {
+    "total": 40,
+    "fully_redacted": 40
+  },
+  "total_size_kb": 2076.5,
+  "total_size_mb": 2.03
+}
