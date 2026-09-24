@@ -5,6 +5,13 @@ triage, guardrails and confidence scoring, while Azure OpenAI (`gpt-5.4`) is res
 for heavy drafting. A router picks the path per item, and a confidence gate decides
 what a human must review. Every decision lands in an audit table.
 
+> **Jev is a real trained model, not a stub.** `jev/` holds a template-synthesized
+> training corpus, four calibrated TF-IDF + logistic-regression classifiers
+> (category 1.00 / urgency 1.00 / jurisdiction 0.95 / injection 0.90 holdout accuracy,
+> 2 MB on disk), served by the `api/jev.py` Python serverless function at zero
+> per-call cost. The Azure small deployment remains as automatic fallback.
+> See [jev/README.md](jev/README.md).
+
 ## How it works
 
 ```
