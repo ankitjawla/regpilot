@@ -92,14 +92,44 @@ export default function Dashboard() {
   const [jevMeta, setJevMeta] = useState<JevMeta | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     fetch("/api/stats")
       .then((r) => r.json())
-      .then((d) => (d.error ? setError(d.error) : setStats(d)))
-      .catch(() => setError("Could not load dashboard."));
+      .then((d) => {
+        if (cancelled) return;
+        if (d.error) {
+          setError(d.error);
+          setStats({
+            total: 0,
+            fastPathPct: 0,
+            avgConfidence: null,
+            pendingCount: 0,
+            blockedCount: 0,
+            autoApprovedCount: 0,
+            approvedCount: 0,
+            criticalCount: 0,
+            byCategory: [],
+            byStatus: [],
+            recent: [],
+            needsYou: [],
+            audit: [],
+          });
+        } else {
+          setStats(d);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setError("Could not load dashboard.");
+      });
     fetch("/api/jevmeta")
       .then((r) => r.json())
-      .then((d) => setJevMeta(d))
+      .then((d) => {
+        if (!cancelled) setJevMeta(d);
+      })
       .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const catMax = useMemo(() => {

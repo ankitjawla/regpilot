@@ -60,13 +60,19 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <div className="mt-1 flex items-center gap-2 text-xs text-[var(--ink)]">
             <span
               className={`inline-block h-1.5 w-1.5 rounded-full ${
-                health?.typesafe ? "bg-[var(--sage)]" : "bg-[var(--amber)]"
+                health == null
+                  ? "bg-[var(--ink-mute)]"
+                  : health.typesafe
+                    ? "bg-[var(--sage)]"
+                    : "bg-[var(--amber)]"
               }`}
             />
             <span className="font-medium">
-              {health?.typesafe
-                ? `TypeSafe ${health.model || "jev-latest"}`
-                : "TypeSafe offline"}
+              {health == null
+                ? "Checking stack…"
+                : health.typesafe
+                  ? `TypeSafe ${health.model || "jev-latest"}`
+                  : "TypeSafe offline"}
             </span>
           </div>
           <div className="mt-0.5 pl-3.5 font-mono text-[10px] text-[var(--ink-mute)]">
