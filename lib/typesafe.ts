@@ -68,6 +68,7 @@ export type TypesafeTriageAnswers = {
   model: string;
   latencyMs: number;
   injection: NoulResponse;
+  escalate: NoulResponse;
   category: ChoiceResponse<typeof CATEGORY_CRITERIA>;
   urgency: ChoiceResponse<typeof URGENCY_CRITERIA>;
   jurisdiction: ChoiceResponse<typeof JURISDICTION_CRITERIA>;
@@ -93,6 +94,13 @@ export async function typesafeTriage(
           false: "Ordinary regulatory or business content",
         }
       ),
+      escalate: noul(
+        "Is this an enforcement action, Matters Requiring Attention (MRA), imminent filing deadline, novel/ambiguous issue, or otherwise high-stakes enough that a human must review before any automated memo is drafted?",
+        {
+          true: "Enforcement, MRA, imminent deadline, material ambiguity, or novel risk — human before drafting",
+          false: "Routine, well-scoped notice or trend where automated triage and drafting are appropriate",
+        }
+      ),
       category: choice(
         "What is the primary regulatory category of this document?",
         CATEGORY_CRITERIA
@@ -112,6 +120,7 @@ export async function typesafeTriage(
     model: result.model,
     latencyMs: Date.now() - started,
     injection: result.answers.injection,
+    escalate: result.answers.escalate,
     category: result.answers.category,
     urgency: result.answers.urgency,
     jurisdiction: result.answers.jurisdiction,

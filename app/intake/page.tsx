@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
-import { Card, SectionTitle, Badge, StatusBadge, ConfidenceBadge, UrgencyBadge } from "@/components/ui";
+import { Card, SectionTitle, Badge, StatusBadge, ConfidenceBadge, UrgencyBadge, PageHeader } from "@/components/ui";
 
 type Sample = { id: string; title: string; label: string; preview: string; text: string };
 
@@ -18,6 +18,13 @@ type TriageResult = {
     confidence: number;
     rationale: string;
   };
+  decisions?: {
+    injectionNoul: number;
+    escalateNoul: number;
+    category: { choice: string; confidence: number; probabilities: Record<string, number> };
+    urgency: { choice: string; confidence: number; probabilities: Record<string, number> };
+    jurisdiction: { choice: string; confidence: number; probabilities: Record<string, number> };
+  } | null;
   jev?: { model: string; latencyMs: number | null };
   route?: { fastPath: boolean; model: string; reason: string };
 };
@@ -111,87 +118,98 @@ export default function Intake() {
     reset();
   }
 
+  function modelBadge(model?: string | null, latencyMs?: number | null) {
+    if (!model) return null;
+    const isTypesafe = model.startsWith("jev-") && model !== "jev-local-v1";
+    const isLocal = model === "jev-local-v1";
+    const label = isTypesafe
+      ? `TypeSafe ${model}`
+      : isLocal
+        ? "Jev local model"
+        : `Azure ${model}`;
+    return (
+      <Badge color={isTypesafe || isLocal ? "green" : "slate"}>
+        {label}
+        {latencyMs != null ? ` · ${latencyMs}ms` : ""}
+      </Badge>
+    );
+  }
+
   return (
     <div>
-      <h1 className="mb-1 text-2xl font-bold tracking-tight">New intake</h1>
-      <p className="mb-6 text-sm text-stone-500">
-        Paste a regulatory document or load a fictional sample. Jev redacts PII and
-        screens for injection <em>before</em> anything reaches a model.
-      </p>
+      <PageHeader
+        title="Intake"
+        subtitle="Paste a regulatory document or load a fictional sample. TypeSafe System One redacts PII and screens for injection before Azure OpenAI drafts."
+      />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
-          <SectionTitle>Source document</SectionTitle>
+          <SectionTitle eyebrow="Source">Document</SectionTitle>
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Title (optional)"
-            className="mb-2 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            className="mb-2 w-full rounded-xl border border-[var(--line)] bg-[var(--paper-2)] px-3 py-2.5 text-sm outline-none ring-[var(--sage)] focus:ring-2"
           />
           <textarea
             value={text}
             onChange={(e) => { setText(e.target.value); reset(); }}
             rows={12}
             placeholder="Paste the examination finding, rule update, SAR narrative…"
-            className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            className="w-full rounded-xl border border-[var(--line)] bg-[var(--paper-2)] px-3 py-2.5 text-sm outline-none ring-[var(--sage)] focus:ring-2"
           />
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               onClick={runTriage}
               disabled={busy !== null || text.trim().length < 20}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              className="rounded-xl bg-[var(--ink)] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[var(--ink-2)] disabled:opacity-50"
             >
               {busy === "triage" ? "Triaging…" : "Run triage"}
             </button>
             <button
               onClick={() => fileRef.current?.click()}
-              className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50"
+              className="rounded-xl border border-[var(--line)] bg-white px-4 py-2.5 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--paper-2)]"
             >
               Upload .txt / .md
             </button>
             <input ref={fileRef} type="file" accept=".txt,.md" className="hidden" onChange={onFile} />
           </div>
-          {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
+          {error && <p className="mt-3 text-sm text-[var(--coral)]">{error}</p>}
         </Card>
 
         <Card>
-          <SectionTitle>Fictional samples — one click to load</SectionTitle>
+          <SectionTitle eyebrow="Library">Fictional samples</SectionTitle>
           <div className="space-y-2">
             {samples.map((s) => (
               <button
                 key={s.id}
                 onClick={() => loadSample(s)}
-                className="w-full rounded-lg border border-stone-200 p-3 text-left hover:border-blue-400 hover:bg-blue-50/50"
+                className="w-full rounded-xl border border-[var(--line)] bg-[var(--paper-2)] p-3 text-left transition hover:border-[var(--sage)] hover:bg-white"
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-sm font-semibold">{s.title}</span>
                   <Badge color="slate">{s.label}</Badge>
                 </div>
-                <p className="mt-1 text-xs text-stone-500">{s.preview}</p>
+                <p className="mt-1 text-xs text-[var(--ink-mute)]">{s.preview}</p>
               </button>
             ))}
-            {samples.length === 0 && <p className="text-sm text-stone-500">Loading samples…</p>}
+            {samples.length === 0 && <p className="text-sm text-[var(--ink-mute)]">Loading samples…</p>}
           </div>
         </Card>
       </div>
 
       {triage && (
         <div className="mt-6 space-y-4">
-          <Card className={triage.blocked ? "border-red-300" : ""}>
+          <Card className={triage.blocked ? "border-[var(--coral)]/40" : ""}>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <SectionTitle>1 · Guardrail (Jev small model + regex)</SectionTitle>
-              {triage.jev && (
-                <Badge color={triage.jev.model === "jev-local-v1" ? "green" : "slate"}>
-                  {triage.jev.model === "jev-local-v1" ? "Jev local model" : "Azure fallback"}
-                  {triage.jev.latencyMs != null ? ` · ${triage.jev.latencyMs}ms` : ""}
-                </Badge>
-              )}
+              <SectionTitle eyebrow="Guardrail">PII + injection screen</SectionTitle>
+              {modelBadge(triage.jev?.model, triage.jev?.latencyMs)}
             </div>
             {triage.blocked ? (
               <div>
                 <Badge color="red">Blocked</Badge>
-                <p className="mt-2 text-sm text-stone-700">{triage.guardrail.reason}</p>
-                <p className="mt-1 text-xs text-stone-500">
+                <p className="mt-2 text-sm text-[var(--ink)]">{triage.guardrail.reason}</p>
+                <p className="mt-1 text-xs text-[var(--ink-mute)]">
                   Blocked inputs never reach the large model. The attempt was logged to the audit trail.
                 </p>
               </div>
@@ -203,7 +221,7 @@ export default function Intake() {
                 ) : (
                   <Badge color="slate">No PII found</Badge>
                 )}
-                <span className="w-full text-xs text-stone-500">{triage.guardrail.reason}</span>
+                <span className="w-full text-xs text-[var(--ink-mute)]">{triage.guardrail.reason}</span>
               </div>
             )}
           </Card>
@@ -212,30 +230,61 @@ export default function Intake() {
             <>
               <Card>
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <SectionTitle>2 · Triage (Jev small model)</SectionTitle>
-                  {triage.jev && (
-                    <Badge color={triage.jev.model === "jev-local-v1" ? "green" : "slate"}>
-                      {triage.jev.model === "jev-local-v1" ? "Jev local model" : "Azure fallback"}
-                      {triage.jev.latencyMs != null ? ` · ${triage.jev.latencyMs}ms` : ""}
-                    </Badge>
-                  )}
+                  <SectionTitle eyebrow="Triage">System One judgments</SectionTitle>
+                  {modelBadge(triage.jev?.model, triage.jev?.latencyMs)}
                 </div>
                 <div className="flex flex-wrap gap-2 text-sm">
                   <Badge color="blue">{triage.triage.category}</Badge>
                   <UrgencyBadge urgency={triage.triage.urgency} />
                   <Badge color="slate">{triage.triage.jurisdiction}</Badge>
-                  <span className="inline-flex items-center gap-1 text-xs text-stone-500">
+                  <span className="inline-flex items-center gap-1 text-xs text-[var(--ink-mute)]">
                     confidence <ConfidenceBadge score={triage.triage.confidence} />
                   </span>
                 </div>
-                <p className="mt-2 text-sm text-stone-600">{triage.triage.rationale}</p>
-                <div className="mt-3 rounded-lg bg-stone-50 p-3 text-sm">
+                <p className="mt-2 text-sm text-[var(--ink-2)]">{triage.triage.rationale}</p>
+                {triage.decisions && (
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    {[
+                      {
+                        label: "Injection",
+                        value: triage.decisions.injectionNoul,
+                        hint: "noul · block ≥ 0.55",
+                      },
+                      {
+                        label: "Escalate",
+                        value: triage.decisions.escalateNoul,
+                        hint: "noul · full path ≥ 0.75 if non-routine",
+                      },
+                      {
+                        label: "Category conf",
+                        value: triage.decisions.category.confidence,
+                        hint: triage.decisions.category.choice,
+                      },
+                      {
+                        label: "Urgency conf",
+                        value: triage.decisions.urgency.confidence,
+                        hint: triage.decisions.urgency.choice,
+                      },
+                    ].map((c) => (
+                      <div key={c.label} className="rounded-lg bg-[var(--paper-2)] px-3 py-2">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--ink-mute)]">
+                          {c.label}
+                        </div>
+                        <div className="text-lg font-bold tabular-nums">
+                          {c.value.toFixed(2)}
+                        </div>
+                        <div className="text-[11px] text-[var(--ink-mute)]">{c.hint}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--paper-2)] p-3 text-sm">
                   <span className="font-semibold">Route: </span>
-                  <Badge color={triage.route.fastPath ? "purple" : "blue"}>
-                    {triage.route.fastPath ? "Fast path (small model)" : "Full analysis (large model)"}
+                  <Badge color={triage.route.fastPath ? "green" : "blue"}>
+                    {triage.route.fastPath ? "Fast path (draft model)" : "Full analysis (large model)"}
                   </Badge>
-                  <p className="mt-1 text-xs text-stone-500">{triage.route.reason}</p>
-                  <p className="mt-1 font-mono text-[11px] text-stone-400">model: {triage.route.model}</p>
+                  <p className="mt-1 text-xs text-[var(--ink-mute)]">{triage.route.reason}</p>
+                  <p className="mt-1 font-mono text-[11px] text-[var(--ink-mute)]">model: {triage.route.model}</p>
                 </div>
               </Card>
 
@@ -243,7 +292,7 @@ export default function Intake() {
                 <button
                   onClick={runAnalyze}
                   disabled={busy !== null}
-                  className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
+                  className="rounded-xl bg-[var(--sage)] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0d655e] disabled:opacity-50"
                 >
                   {busy === "analyze" ? "Analyzing… (obligations → memo → confidence gate)" : "Generate analysis"}
                 </button>
@@ -257,16 +306,16 @@ export default function Intake() {
         <div className="mt-6 space-y-4">
           <Card>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <SectionTitle>3 · Extracted obligations (large model)</SectionTitle>
-              <span className="font-mono text-[11px] text-stone-400">extracted by large model</span>
+              <SectionTitle eyebrow="Obligations">Extracted by Azure</SectionTitle>
+              <span className="font-mono text-[11px] text-[var(--ink-mute)]">extracted by large model</span>
             </div>
             {analysis.obligations.length === 0 ? (
-              <p className="text-sm text-stone-500">No concrete obligations found.</p>
+              <p className="text-sm text-[var(--ink-mute)]">No concrete obligations found.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead>
-                    <tr className="border-b border-stone-200 text-xs uppercase tracking-wide text-stone-500">
+                    <tr className="border-b border-[var(--line)] text-xs uppercase tracking-wide text-[var(--ink-mute)]">
                       <th className="py-2 pr-3">Owner</th>
                       <th className="py-2 pr-3">Action</th>
                       <th className="py-2 pr-3">Due</th>
@@ -275,11 +324,11 @@ export default function Intake() {
                   </thead>
                   <tbody>
                     {analysis.obligations.map((o, i) => (
-                      <tr key={i} className="border-b border-stone-100 align-top last:border-0">
+                      <tr key={i} className="border-b border-[var(--line)]/70 align-top last:border-0">
                         <td className="py-2 pr-3 font-medium">{o.owner}</td>
                         <td className="py-2 pr-3">{o.action}</td>
                         <td className="py-2 pr-3 whitespace-nowrap">{o.due_date}</td>
-                        <td className="py-2 text-xs italic text-stone-500">“{o.source_quote}”</td>
+                        <td className="py-2 text-xs italic text-[var(--ink-mute)]">“{o.source_quote}”</td>
                       </tr>
                     ))}
                   </tbody>
@@ -290,34 +339,30 @@ export default function Intake() {
 
           <Card>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <SectionTitle>4 · Draft memo</SectionTitle>
-              <span className="font-mono text-[11px] text-stone-400">drafted by {analysis.modelUsed}</span>
+              <SectionTitle eyebrow="Memo">Draft</SectionTitle>
+              <span className="font-mono text-[11px] text-[var(--ink-mute)]">drafted by {analysis.modelUsed}</span>
             </div>
-            <div className="memo rounded-lg bg-stone-50 p-4">
+            <div className="memo rounded-lg bg-[var(--paper-2)] p-4">
               <ReactMarkdown>{analysis.memo}</ReactMarkdown>
             </div>
           </Card>
 
           <Card>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <SectionTitle>5 · Confidence gate (Jev small model)</SectionTitle>
-              {analysis.confidence.model && (
-                <Badge color={analysis.confidence.model === "jev-local-v1" ? "green" : "slate"}>
-                  {analysis.confidence.model}
-                </Badge>
-              )}
+              <SectionTitle eyebrow="Gate">Confidence</SectionTitle>
+              {modelBadge(analysis.confidence.model)}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm text-stone-600">Score</span>
+              <span className="text-sm text-[var(--ink-2)]">Score</span>
               <ConfidenceBadge score={analysis.confidence.score} />
               <StatusBadge status={analysis.status} />
             </div>
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-stone-600">
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-[var(--ink-2)]">
               {analysis.confidence.reasons.map((r, i) => (
                 <li key={i}>{r}</li>
               ))}
             </ul>
-            <p className="mt-2 text-xs text-stone-500">{analysis.gate.label}</p>
+            <p className="mt-2 text-xs text-[var(--ink-mute)]">{analysis.gate.label}</p>
             {(analysis.status === "pending_review" || analysis.status === "needs_work") && (
               <Link
                 href="/review"

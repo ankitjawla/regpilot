@@ -22,8 +22,10 @@ const PATTERNS: { label: string; re: RegExp }[] = [
     re: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
   },
   {
+    // Keywords must accept Title Case ("Borrower:") — the previous lowercase-only
+    // alternation silently missed labeled names in regulatory forms.
     label: "personal name",
-    re: /\b(?:borrower|customer|client|name|officer)\s*:\s*[A-Z][a-z]+(?:\s+[A-Z][a-z.]+){1,2}/g,
+    re: /\b(?:[Bb]orrower|[Cc]ustomer|[Cc]lient|[Nn]ame|[Oo]fficer)\s*:\s*[A-Z][a-z]+(?:\s+[A-Z][a-z.]+){1,2}/g,
   },
 ];
 

@@ -157,7 +157,8 @@ function triageFromTypesafe(t: TypesafeTriageAnswers): Triage {
       `${t.category.choice} conf ${t.category.confidence.toFixed(2)}, ` +
       `${t.urgency.choice} urgency conf ${t.urgency.confidence.toFixed(2)}, ` +
       `${t.jurisdiction.choice} conf ${t.jurisdiction.confidence.toFixed(2)}, ` +
-      `injection noul ${t.injection.noul.toFixed(2)}.`,
+      `injection noul ${t.injection.noul.toFixed(2)}, ` +
+      `escalate noul ${t.escalate.noul.toFixed(2)}.`,
   };
 }
 
@@ -380,8 +381,15 @@ export async function jevClassify(
 // ------------------------------------------------------------------- route
 export type RouteDecision = { fastPath: boolean; reason: string; model: string };
 
-export function routeDecision(t: Triage): RouteDecision {
+/** Escalate to full analysis when System One escalate noul is at/above this. */
+const ESCALATE_FULL_PATH_THRESHOLD = 0.75;
+
+export function routeDecision(
+  t: Triage,
+  opts?: { escalateNoul?: number | null }
+): RouteDecision {
   const routine = ["Consumer Compliance", "Other", "Operational Risk"];
+  const isRoutine = routine.includes(t.category);
   if (t.urgency === "critical") {
     return {
       fastPath: false,
@@ -389,12 +397,30 @@ export function routeDecision(t: Triage): RouteDecision {
       reason: "Critical urgency — full analysis on the large model",
     };
   }
-  if (t.confidence >= 0.8 && routine.includes(t.category)) {
+  // Escalate noul only forces full path when the matter is non-routine or
+  // triage confidence is already shaky — otherwise high-confidence routine
+  // items stay on the fast path (confidence-gated routing).
+  if (
+    typeof opts?.escalateNoul === "number" &&
+    opts.escalateNoul >= ESCALATE_FULL_PATH_THRESHOLD &&
+    (!isRoutine || t.confidence < 0.85)
+  ) {
+    return {
+      fastPath: false,
+      model: bigDeployment(),
+      reason: `TypeSafe escalate noul ${opts.escalateNoul.toFixed(2)} ≥ ${ESCALATE_FULL_PATH_THRESHOLD} with ${t.category} conf ${t.confidence.toFixed(2)} — full analysis on the large model`,
+    };
+  }
+  if (t.confidence >= 0.8 && isRoutine) {
+    const small = smallDeployment();
+    const big = bigDeployment();
+    const same = small === big;
     return {
       fastPath: true,
-      // Fast-path drafting still needs a text model; System One cannot generate memos.
-      model: smallModelLabel(),
-      reason: `High-confidence (${t.confidence.toFixed(2)}) routine ${t.category} matter — fast path draft on the small Azure deployment`,
+      model: small,
+      reason: same
+        ? `High-confidence (${t.confidence.toFixed(2)}) routine ${t.category} — fast path (set AZURE_OPENAI_SMALL_DEPLOYMENT for a cheaper draft model; currently using ${big})`
+        : `High-confidence (${t.confidence.toFixed(2)}) routine ${t.category} matter — fast path draft on ${small}`,
     };
   }
   return {
