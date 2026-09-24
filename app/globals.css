@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+/* Force the light compliance-console theme regardless of OS preference. */
+:root {
+  color-scheme: light;
+}
+
+body {
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Markdown memo typography */
+.memo h2 {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1c1917;
+  margin: 1rem 0 0.4rem;
+}
+.memo h2:first-child {
+  margin-top: 0;
+}
+.memo p {
+  margin: 0.4rem 0;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: #44403c;
+}
+.memo ul,
+.memo ol {
+  margin: 0.4rem 0;
+  padding-left: 1.25rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: #44403c;
+}
+.memo ul {
+  list-style-type: disc;
+}
+.memo ol {
+  list-style-type: decimal;
+}
+.memo strong {
+  color: #1c1917;
+}
