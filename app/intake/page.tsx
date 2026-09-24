@@ -18,6 +18,13 @@ type TriageResult = {
     confidence: number;
     rationale: string;
   };
+  decisions?: {
+    injectionNoul: number;
+    escalateNoul: number;
+    category: { choice: string; confidence: number; probabilities: Record<string, number> };
+    urgency: { choice: string; confidence: number; probabilities: Record<string, number> };
+    jurisdiction: { choice: string; confidence: number; probabilities: Record<string, number> };
+  } | null;
   jev?: { model: string; latencyMs: number | null };
   route?: { fastPath: boolean; model: string; reason: string };
 };
@@ -111,12 +118,29 @@ export default function Intake() {
     reset();
   }
 
+  function modelBadge(model?: string | null, latencyMs?: number | null) {
+    if (!model) return null;
+    const isTypesafe = model.startsWith("jev-") && model !== "jev-local-v1";
+    const isLocal = model === "jev-local-v1";
+    const label = isTypesafe
+      ? `TypeSafe ${model}`
+      : isLocal
+        ? "Jev local model"
+        : `Azure ${model}`;
+    return (
+      <Badge color={isTypesafe || isLocal ? "green" : "slate"}>
+        {label}
+        {latencyMs != null ? ` · ${latencyMs}ms` : ""}
+      </Badge>
+    );
+  }
+
   return (
     <div>
       <h1 className="mb-1 text-2xl font-bold tracking-tight">New intake</h1>
       <p className="mb-6 text-sm text-stone-500">
-        Paste a regulatory document or load a fictional sample. Jev redacts PII and
-        screens for injection <em>before</em> anything reaches a model.
+        Paste a regulatory document or load a fictional sample. TypeSafe System One (Jev)
+        redacts PII and screens for injection <em>before</em> Azure OpenAI drafts.
       </p>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -179,13 +203,8 @@ export default function Intake() {
         <div className="mt-6 space-y-4">
           <Card className={triage.blocked ? "border-red-300" : ""}>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <SectionTitle>1 · Guardrail (Jev small model + regex)</SectionTitle>
-              {triage.jev && (
-                <Badge color={triage.jev.model === "jev-local-v1" ? "green" : "slate"}>
-                  {triage.jev.model === "jev-local-v1" ? "Jev local model" : "Azure fallback"}
-                  {triage.jev.latencyMs != null ? ` · ${triage.jev.latencyMs}ms` : ""}
-                </Badge>
-              )}
+              <SectionTitle>1 · Guardrail (TypeSafe System One + regex)</SectionTitle>
+              {modelBadge(triage.jev?.model, triage.jev?.latencyMs)}
             </div>
             {triage.blocked ? (
               <div>
@@ -212,13 +231,8 @@ export default function Intake() {
             <>
               <Card>
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <SectionTitle>2 · Triage (Jev small model)</SectionTitle>
-                  {triage.jev && (
-                    <Badge color={triage.jev.model === "jev-local-v1" ? "green" : "slate"}>
-                      {triage.jev.model === "jev-local-v1" ? "Jev local model" : "Azure fallback"}
-                      {triage.jev.latencyMs != null ? ` · ${triage.jev.latencyMs}ms` : ""}
-                    </Badge>
-                  )}
+                  <SectionTitle>2 · Triage (TypeSafe System One)</SectionTitle>
+                  {modelBadge(triage.jev?.model, triage.jev?.latencyMs)}
                 </div>
                 <div className="flex flex-wrap gap-2 text-sm">
                   <Badge color="blue">{triage.triage.category}</Badge>
@@ -229,10 +243,46 @@ export default function Intake() {
                   </span>
                 </div>
                 <p className="mt-2 text-sm text-stone-600">{triage.triage.rationale}</p>
+                {triage.decisions && (
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    {[
+                      {
+                        label: "Injection",
+                        value: triage.decisions.injectionNoul,
+                        hint: "noul · block ≥ 0.55",
+                      },
+                      {
+                        label: "Escalate",
+                        value: triage.decisions.escalateNoul,
+                        hint: "noul · full path ≥ 0.75 if non-routine",
+                      },
+                      {
+                        label: "Category conf",
+                        value: triage.decisions.category.confidence,
+                        hint: triage.decisions.category.choice,
+                      },
+                      {
+                        label: "Urgency conf",
+                        value: triage.decisions.urgency.confidence,
+                        hint: triage.decisions.urgency.choice,
+                      },
+                    ].map((c) => (
+                      <div key={c.label} className="rounded-lg bg-stone-50 px-3 py-2">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-stone-500">
+                          {c.label}
+                        </div>
+                        <div className="text-lg font-bold tabular-nums">
+                          {c.value.toFixed(2)}
+                        </div>
+                        <div className="text-[11px] text-stone-500">{c.hint}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div className="mt-3 rounded-lg bg-stone-50 p-3 text-sm">
                   <span className="font-semibold">Route: </span>
                   <Badge color={triage.route.fastPath ? "purple" : "blue"}>
-                    {triage.route.fastPath ? "Fast path (small model)" : "Full analysis (large model)"}
+                    {triage.route.fastPath ? "Fast path (draft model)" : "Full analysis (large model)"}
                   </Badge>
                   <p className="mt-1 text-xs text-stone-500">{triage.route.reason}</p>
                   <p className="mt-1 font-mono text-[11px] text-stone-400">model: {triage.route.model}</p>
@@ -300,12 +350,8 @@ export default function Intake() {
 
           <Card>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <SectionTitle>5 · Confidence gate (Jev small model)</SectionTitle>
-              {analysis.confidence.model && (
-                <Badge color={analysis.confidence.model === "jev-local-v1" ? "green" : "slate"}>
-                  {analysis.confidence.model}
-                </Badge>
-              )}
+              <SectionTitle>5 · Confidence gate (TypeSafe System One)</SectionTitle>
+              {modelBadge(analysis.confidence.model)}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm text-stone-600">Score</span>

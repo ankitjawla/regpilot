@@ -58,7 +58,9 @@ export async function POST(req: NextRequest) {
       jev.full,
       jev.typesafe
     );
-    const route = routeDecision(triage);
+    const route = routeDecision(triage, {
+      escalateNoul: jev.typesafe?.escalate.noul ?? null,
+    });
 
     const rows = await query<{ id: number }>(
       `INSERT INTO regpilot_items
@@ -85,6 +87,28 @@ export async function POST(req: NextRequest) {
       route.reason
     );
 
+    const decisions = jev.typesafe
+      ? {
+          injectionNoul: jev.typesafe.injection.noul,
+          escalateNoul: jev.typesafe.escalate.noul,
+          category: {
+            choice: jev.typesafe.category.choice,
+            confidence: jev.typesafe.category.confidence,
+            probabilities: jev.typesafe.category.probabilities,
+          },
+          urgency: {
+            choice: jev.typesafe.urgency.choice,
+            confidence: jev.typesafe.urgency.confidence,
+            probabilities: jev.typesafe.urgency.probabilities,
+          },
+          jurisdiction: {
+            choice: jev.typesafe.jurisdiction.choice,
+            confidence: jev.typesafe.jurisdiction.confidence,
+            probabilities: jev.typesafe.jurisdiction.probabilities,
+          },
+        }
+      : null;
+
     return NextResponse.json({
       blocked: false,
       itemId,
@@ -101,6 +125,7 @@ export async function POST(req: NextRequest) {
         confidence: triage.confidence,
         rationale: triage.rationale,
       },
+      decisions,
       jev: { model: triage.jev.model, latencyMs: triage.jev.latencyMs },
       route: { fastPath: route.fastPath, model: route.model, reason: route.reason },
     });
