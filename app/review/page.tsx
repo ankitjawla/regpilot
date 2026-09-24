@@ -2,7 +2,15 @@
 
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Card, SectionTitle, Badge, StatusBadge, ConfidenceBadge, UrgencyBadge } from "@/components/ui";
+import {
+  Card,
+  SectionTitle,
+  Badge,
+  StatusBadge,
+  ConfidenceBadge,
+  UrgencyBadge,
+  PageHeader,
+} from "@/components/ui";
 
 type QueueItem = {
   id: number;
@@ -46,7 +54,9 @@ export default function ReviewQueue() {
     setSelected(it);
     setDetail(null);
     setNote("");
-    const d2 = await fetch(`/api/detail?item_id=${it.id}`).then((x) => x.json()).catch(() => null);
+    const d2 = await fetch(`/api/detail?item_id=${it.id}`)
+      .then((x) => x.json())
+      .catch(() => null);
     if (d2 && !d2.error) setDetail(d2);
   }
 
@@ -74,32 +84,40 @@ export default function ReviewQueue() {
 
   return (
     <div>
-      <h1 className="mb-1 text-2xl font-bold tracking-tight">Review queue</h1>
-      <p className="mb-6 text-sm text-stone-500">
-        Items the confidence gate held back. Approve or request changes — every decision is audited.
-      </p>
-      {error && <Card className="mb-4 border-red-200 text-sm text-red-700">{error}</Card>}
+      <PageHeader
+        title="Review"
+        subtitle="Items the confidence gate held back. Approve or request changes — every decision is audited."
+      />
+      {error && (
+        <Card className="mb-4 border-[var(--coral)]/30 text-sm text-[var(--coral)]">
+          {error}
+        </Card>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-1">
-          <SectionTitle>Needs a human ({items.length})</SectionTitle>
+          <SectionTitle eyebrow="Queue">Needs a human ({items.length})</SectionTitle>
           {items.length === 0 ? (
-            <p className="text-sm text-stone-500">Queue is clear.</p>
+            <div className="rounded-xl border border-dashed border-[var(--line)] bg-[var(--paper-2)] px-3 py-8 text-center text-sm text-[var(--ink-mute)]">
+              Queue is clear.
+            </div>
           ) : (
             <div className="space-y-2">
               {items.map((it) => (
                 <button
                   key={it.id}
                   onClick={() => select(it)}
-                  className={`w-full rounded-lg border p-3 text-left ${
-                    selected?.id === it.id ? "border-blue-500 bg-blue-50/50" : "border-stone-200 hover:border-blue-300"
+                  className={`w-full rounded-xl border p-3 text-left transition ${
+                    selected?.id === it.id
+                      ? "border-[var(--sage)] bg-[var(--sage-soft)]/40"
+                      : "border-[var(--line)] bg-[var(--paper-2)] hover:border-[var(--sage)] hover:bg-white"
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="truncate text-sm font-semibold">{it.title}</span>
                     <StatusBadge status={it.status} />
                   </div>
-                  <div className="mt-1 flex flex-wrap gap-1">
+                  <div className="mt-1.5 flex flex-wrap gap-1">
                     <Badge color="blue">{it.category}</Badge>
                     <UrgencyBadge urgency={it.urgency} />
                     <ConfidenceBadge score={it.confidence} />
@@ -112,60 +130,75 @@ export default function ReviewQueue() {
 
         <div className="lg:col-span-2">
           {!selected ? (
-            <Card><p className="text-sm text-stone-500">Select an item to review its memo and obligations.</p></Card>
+            <Card>
+              <p className="text-sm text-[var(--ink-mute)]">
+                Select an item to review its memo and obligations.
+              </p>
+            </Card>
           ) : (
             <div className="space-y-4">
               <Card>
-                <SectionTitle>Obligations ({detail ? detail.obligations.length : selected.obligation_count})</SectionTitle>
+                <SectionTitle eyebrow="Extracted">
+                  Obligations ({detail ? detail.obligations.length : selected.obligation_count})
+                </SectionTitle>
                 {detail ? (
                   detail.obligations.length === 0 ? (
-                    <p className="text-sm text-stone-500">None extracted.</p>
+                    <p className="text-sm text-[var(--ink-mute)]">None extracted.</p>
                   ) : (
                     <ul className="space-y-2 text-sm">
                       {detail.obligations.map((o, i) => (
-                        <li key={i} className="rounded-lg bg-stone-50 p-3">
+                        <li
+                          key={i}
+                          className="rounded-xl border border-[var(--line)] bg-[var(--paper-2)] p-3"
+                        >
                           <span className="font-semibold">{o.owner}:</span> {o.action}{" "}
-                          <span className="text-stone-500">({o.due_date})</span>
+                          <span className="text-[var(--ink-mute)]">({o.due_date})</span>
                         </li>
                       ))}
                     </ul>
                   )
                 ) : (
-                  <p className="text-sm text-stone-500">Loading…</p>
+                  <p className="text-sm text-[var(--ink-mute)]">Loading…</p>
                 )}
               </Card>
               <Card>
                 <div className="mb-3 flex items-center justify-between">
-                  <SectionTitle>Draft memo</SectionTitle>
-                  {detail && <span className="font-mono text-[11px] text-stone-400">{detail.modelUsed}</span>}
+                  <SectionTitle eyebrow="Draft">Memo</SectionTitle>
+                  {detail && (
+                    <span className="font-mono text-[11px] text-[var(--ink-mute)]">
+                      {detail.modelUsed}
+                    </span>
+                  )}
                 </div>
                 {detail ? (
-                  <div className="memo"><ReactMarkdown>{detail.memo}</ReactMarkdown></div>
+                  <div className="memo rounded-xl border border-[var(--line)] bg-[var(--paper-2)] p-4">
+                    <ReactMarkdown>{detail.memo}</ReactMarkdown>
+                  </div>
                 ) : (
-                  <p className="text-sm text-stone-500">Loading…</p>
+                  <p className="text-sm text-[var(--ink-mute)]">Loading…</p>
                 )}
               </Card>
               <Card>
-                <SectionTitle>Your decision</SectionTitle>
+                <SectionTitle eyebrow="Human">Your decision</SectionTitle>
                 <textarea
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
                   rows={2}
                   placeholder="Reviewer note (optional, saved to the audit log)"
-                  className="mb-3 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  className="mb-3 w-full rounded-xl border border-[var(--line)] bg-[var(--paper-2)] px-3 py-2.5 text-sm outline-none ring-[var(--sage)] focus:ring-2"
                 />
                 <div className="flex gap-2">
                   <button
                     onClick={() => decide("approve")}
                     disabled={busy}
-                    className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                    className="rounded-xl bg-[var(--sage)] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0d655e] disabled:opacity-50"
                   >
                     {busy ? "Saving…" : "Approve"}
                   </button>
                   <button
                     onClick={() => decide("needs_work")}
                     disabled={busy}
-                    className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                    className="rounded-xl bg-[var(--coral)] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#9f1515] disabled:opacity-50"
                   >
                     Request changes
                   </button>

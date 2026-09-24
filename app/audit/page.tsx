@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Card, SectionTitle, Badge } from "@/components/ui";
+import { Card, Badge, PageHeader } from "@/components/ui";
 
 type Entry = {
   id: number;
@@ -13,7 +13,7 @@ type Entry = {
   created_at: string;
 };
 
-const ACTORS = ["", "jev-small", "router", "gate", "human"];
+const ACTORS = ["", "human", "router", "gate", "jev-small"];
 
 export default function AuditLog() {
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -37,24 +37,34 @@ export default function AuditLog() {
   }, [actor]);
 
   const actorColor = (a: string) =>
-    a === "human" ? "green" : a === "jev-small" ? "purple" : a === "gate" ? "amber" : a === "router" ? "blue" : "slate";
+    a === "human"
+      ? "green"
+      : a === "gate"
+        ? "amber"
+        : a === "router"
+          ? "blue"
+          : a.includes("jev") || a.startsWith("jev")
+            ? "slate"
+            : "slate";
 
   return (
     <div>
-      <h1 className="mb-1 text-2xl font-bold tracking-tight">Audit log</h1>
-      <p className="mb-6 text-sm text-stone-500">
-        Every model and human decision, in order. Filter by actor or search actions, details and titles.
-      </p>
+      <PageHeader
+        title="Audit"
+        subtitle="Every model and human decision, in order. Filter by actor or search actions, details and titles."
+      />
 
       <Card className="mb-4">
         <div className="flex flex-wrap gap-2">
-          <div className="flex gap-1">
+          <div className="flex flex-wrap gap-1">
             {ACTORS.map((a) => (
               <button
-                key={a}
+                key={a || "all"}
                 onClick={() => setActor(a)}
-                className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                  actor === a ? "bg-slate-900 text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                  actor === a
+                    ? "bg-[var(--ink)] text-white"
+                    : "bg-[var(--paper-2)] text-[var(--ink-mute)] hover:bg-white"
                 }`}
               >
                 {a === "" ? "All" : a}
@@ -62,51 +72,73 @@ export default function AuditLog() {
             ))}
           </div>
           <form
-            className="flex flex-1 gap-2"
-            onSubmit={(e) => { e.preventDefault(); load(); }}
+            className="flex min-w-[16rem] flex-1 gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              load();
+            }}
           >
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search actions, details, titles…"
-              className="w-full rounded-lg border border-stone-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+              className="w-full rounded-xl border border-[var(--line)] bg-[var(--paper-2)] px-3 py-2 text-sm outline-none ring-[var(--sage)] focus:ring-2"
             />
-            <button type="submit" className="rounded-lg bg-slate-900 px-4 py-1.5 text-sm font-semibold text-white">
+            <button
+              type="submit"
+              className="rounded-xl bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white"
+            >
               Search
             </button>
           </form>
         </div>
       </Card>
 
-      {error && <Card className="mb-4 border-red-200 text-sm text-red-700">{error}</Card>}
+      {error && (
+        <Card className="mb-4 border-[var(--coral)]/30 text-sm text-[var(--coral)]">
+          {error}
+        </Card>
+      )}
 
       <Card>
         {entries.length === 0 ? (
-          <p className="text-sm text-stone-500">No entries yet.</p>
+          <p className="text-sm text-[var(--ink-mute)]">No entries yet.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-stone-200 text-xs uppercase tracking-wide text-stone-500">
-                  <th className="py-2 pr-3">Time</th>
-                  <th className="py-2 pr-3">Item</th>
-                  <th className="py-2 pr-3">Actor</th>
-                  <th className="py-2 pr-3">Action</th>
-                  <th className="py-2">Detail</th>
+                <tr className="border-b border-[var(--line)] text-[10px] uppercase tracking-[0.12em] text-[var(--ink-mute)]">
+                  <th className="py-2 pr-3 font-semibold">Time</th>
+                  <th className="py-2 pr-3 font-semibold">Item</th>
+                  <th className="py-2 pr-3 font-semibold">Actor</th>
+                  <th className="py-2 pr-3 font-semibold">Action</th>
+                  <th className="py-2 font-semibold">Detail</th>
                 </tr>
               </thead>
               <tbody>
                 {entries.map((e) => (
-                  <tr key={e.id} className="border-b border-stone-100 align-top last:border-0">
-                    <td className="whitespace-nowrap py-2 pr-3 text-xs text-stone-500">
+                  <tr
+                    key={e.id}
+                    className="border-b border-[var(--line)]/70 align-top last:border-0"
+                  >
+                    <td className="whitespace-nowrap py-2.5 pr-3 font-mono text-[11px] text-[var(--ink-mute)]">
                       {new Date(e.created_at).toLocaleString()}
                     </td>
-                    <td className="max-w-[180px] truncate py-2 pr-3 text-xs">
+                    <td className="max-w-[180px] truncate py-2.5 pr-3 text-xs">
                       {e.item_id ? `#${e.item_id} ${e.title || ""}` : "—"}
                     </td>
-                    <td className="py-2 pr-3"><Badge color={actorColor(e.actor) as "green"}>{e.actor}</Badge></td>
-                    <td className="whitespace-nowrap py-2 pr-3 font-mono text-xs">{e.action}</td>
-                    <td className="max-w-[320px] truncate py-2 text-xs text-stone-600" title={e.detail || ""}>
+                    <td className="py-2.5 pr-3">
+                      <Badge color={actorColor(e.actor) as "green" | "slate" | "amber" | "blue"}>
+                        {e.actor}
+                      </Badge>
+                    </td>
+                    <td className="whitespace-nowrap py-2.5 pr-3 font-mono text-xs">
+                      {e.action}
+                    </td>
+                    <td
+                      className="max-w-[360px] truncate py-2.5 text-xs text-[var(--ink-2)]"
+                      title={e.detail || ""}
+                    >
                       {e.detail || "—"}
                     </td>
                   </tr>
