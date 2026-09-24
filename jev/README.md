@@ -1,5 +1,9 @@
 # Jev local model (jev-local-v1)
 
+> **Production primary path** is TypeSafe System One (`TYPESAFE_API_KEY` →
+> `lib/typesafe.ts`). This local TF-IDF stack is the **offline fallback** when
+> TypeSafe is unset or unreachable (then Azure small deployment as final fallback).
+
 A real, trained small ML model that runs inside the RegPilot app — no API calls,
 no GPU, no cost per call. It handles the jobs a giant LLM is overkill for:
 triage classification, prompt-injection screening, and confidence scoring.

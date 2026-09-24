@@ -9,10 +9,12 @@ const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"]
 export const metadata: Metadata = {
   title: "RegPilot — Regulatory Reporting AI Console",
   description:
-    "Small-model triage, guardrails and confidence gating with Azure OpenAI for regulatory reporting.",
+    "TypeSafe System One (Jev) triage, guardrails and confidence gating with Azure OpenAI for regulatory reporting.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+}: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="min-h-full bg-stone-100 font-sans text-stone-900">
@@ -26,13 +28,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 Regulatory Reporting AI Console
               </div>
               <div className="mt-2 inline-flex items-center rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-slate-300">
-                Jev small-model pattern
+                TypeSafe Jev + Azure OpenAI
               </div>
             </div>
             <Nav />
             <div className="mt-6 hidden text-[11px] leading-relaxed text-slate-500 md:block">
-              Small model triages, guards and scores. Azure OpenAI drafts. Humans
-              decide. Every step is audited.
+              TypeSafe System One triages, guards and scores. Azure OpenAI drafts.
+              Humans decide. Every step is audited.
             </div>
           </aside>
           <main className="min-w-0 flex-1 px-4 py-6 md:px-8 md:py-8">

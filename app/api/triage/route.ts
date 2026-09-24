@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
 
     const origin = req.nextUrl.origin;
 
-    // --- Guardrail (Jev-first: local model, Azure fallback; redaction happens
+    // --- Guardrail (TypeSafe System One → local jev → Azure; redaction happens
     //     before ANY model sees the text)
     const { guardrail, redacted, jev } = await jevGuardrail(text, origin);
 
@@ -51,8 +51,13 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // --- Triage (Jev-first; reuses the guardrail's local result — one call)
-    const triage = await jevClassify(redacted, origin, jev.full);
+    // --- Triage (reuses TypeSafe or local result from the guardrail — one call)
+    const triage = await jevClassify(
+      redacted,
+      origin,
+      jev.full,
+      jev.typesafe
+    );
     const route = routeDecision(triage);
 
     const rows = await query<{ id: number }>(
