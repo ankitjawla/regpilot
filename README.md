@@ -1,16 +1,16 @@
 # RegPilot — Regulatory Reporting AI Console
 
-A working demo of the **small-model ("Jev") pattern**: a cheap small model handles
-triage, guardrails and confidence scoring, while Azure OpenAI (`gpt-5.4`) is reserved
-for heavy drafting. A router picks the path per item, and a confidence gate decides
-what a human must review. Every decision lands in an audit table.
+A working demo of the **System One + LLM pattern**: TypeSafe's **Jev** (System One)
+handles triage, guardrails and confidence scoring with typed judgments, while
+Azure OpenAI (`gpt-5.4`) is reserved for heavy drafting. A router picks the path
+per item, and a confidence gate decides what a human must review. Every decision
+lands in an audit table.
 
-> **Jev is a real trained model, not a stub.** `jev/` holds a template-synthesized
-> training corpus, four calibrated TF-IDF + logistic-regression classifiers
-> (category 1.00 / urgency 1.00 / jurisdiction 0.95 / injection 0.90 holdout accuracy,
-> 2 MB on disk), served by the `api/jev.py` Python serverless function at zero
-> per-call cost. The Azure small deployment remains as automatic fallback.
-> See [jev/README.md](jev/README.md).
+> **Jev is TypeSafe System One** (`POST https://api.typesafe.ai/v1/systemone`) via
+> `@typesafe-ai/sdk`. Local TF-IDF classifiers in `jev/` remain as automatic
+> fallback when `TYPESAFE_API_KEY` is unset or unreachable; Azure small deployment
+> is the final fallback. See [jev/README.md](jev/README.md) and
+> [TypeSafe docs](https://docs.typesafe.ai/).
 
 ## How it works
 
@@ -20,26 +20,26 @@ paste / upload / sample
         ▼
 ┌───────────────┐
 │  GUARDRAIL    │  regex PII redaction FIRST (SSN, account #, phone, email, names)
-│  (jev-small)  │  + regex injection screen + small-model second opinion
+│  (Jev / S1)   │  + TypeSafe Noul injection screen (+ regex)
 └───────┬───────┘  blocked inputs never reach the large model
         ▼
 ┌───────────────┐
-│  TRIAGE       │  small model → category / urgency / jurisdiction / confidence
-│  (jev-small)  │
+│  TRIAGE       │  TypeSafe Choice → category / urgency / jurisdiction + confidence
+│  (Jev / S1)   │
 └───────┬───────┘
         ▼
 ┌───────────────┐
-│  ROUTER       │  high-confidence + routine → FAST PATH (small model drafts)
+│  ROUTER       │  high-confidence + routine → FAST PATH (Azure small drafts)
 │  (rules)      │  critical / novel / low-confidence → FULL ANALYSIS (gpt-5.4)
 └───────┬───────┘
         ▼
 ┌───────────────┐
-│  OBLIGATIONS  │  large model, JSON mode → owner / action / due date / source quote
-│  + MEMO       │  routed model drafts the regulatory memo
+│  OBLIGATIONS  │  Azure large model, JSON mode → owner / action / due date / quote
+│  + MEMO       │  Azure drafts the regulatory memo (System One does not generate text)
 └───────┬───────┘
         ▼
 ┌───────────────┐
-│  CONFIDENCE   │  small model scores the draft 0–1 with reasons
+│  CONFIDENCE   │  TypeSafe Nouls + Score → composite 0–1 with reasons
 │  GATE         │  >0.90 auto-approve · 0.50–0.90 human confirm · <0.50 human review
 └───────────────┘
 ```
@@ -47,26 +47,29 @@ paste / upload / sample
 All samples are **fictional** and labeled as such. The PII sample uses obviously fake
 values (`999-99-9999`, `(555) 010-2030`, `example.com`) to demo redaction.
 
-## The small-model slot
+## Decision-layer priority
 
-`AZURE_OPENAI_SMALL_DEPLOYMENT` is the cheap-model deployment used for guardrail,
-triage and confidence calls. If it is unset, the code falls back to
-`AZURE_OPENAI_DEPLOYMENT` (currently `gpt-5.4`) — the architecture is identical, but
-**point it at a real small deployment (e.g. `gpt-4o-mini`) to light up the cost
-savings** the router is designed for.
+1. **TypeSafe System One** (`TYPESAFE_API_KEY`) — primary for guardrail / triage / confidence
+2. **Local jev** (`api/jev.py` + `jev/models`) — offline fallback
+3. **Azure small deployment** (`AZURE_OPENAI_SMALL_DEPLOYMENT`) — final fallback
 
-## Env vars (Vercel: Production + Preview)
+`AZURE_OPENAI_DEPLOYMENT` (`gpt-5.4`) always handles obligation extraction and full-path
+memo drafting. Fast-path memo drafting uses the small Azure deployment when set.
+
+## Env vars (Vercel: Production + Preview + Development)
 
 | Var | Purpose |
 |---|---|
+| `TYPESAFE_API_KEY` | TypeSafe API key from [console.typesafe.ai](https://console.typesafe.ai/settings/keys) |
+| `TYPESAFE_MODEL` | optional, default `jev-latest` |
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI key (server-side only) |
-| `AZURE_OPENAI_ENDPOINT` | e.g. `https://<resource>.openai.azure.com` |
+| `AZURE_OPENAI_ENDPOINT` | e.g. `https://<resource>.cognitiveservices.azure.com` |
 | `AZURE_OPENAI_API_VERSION` | e.g. `2024-12-01-preview` |
 | `AZURE_OPENAI_DEPLOYMENT` | heavy model (`gpt-5.4`) |
-| `AZURE_OPENAI_SMALL_DEPLOYMENT` | cheap model slot (see above) |
+| `AZURE_OPENAI_SMALL_DEPLOYMENT` | cheap model for fast-path drafting (optional) |
 | `DATABASE_URL` | Neon Postgres (tables self-create on first use) |
 
-Never commit `.env*` — `.gitignore` covers them.
+Never commit `.env*` — `.gitignore` covers them. Copy `.env.example` to `.env.local`.
 
 ## Database
 
@@ -86,10 +89,12 @@ no manual migration step:
 - `GET /api/audit` — filterable audit log (`?actor=&q=&item_id=`)
 - `GET /api/samples` — the five fictional samples
 - `GET /api/stats` — dashboard numbers
+- `GET /api/jevmeta` — TypeSafe + local model metadata
 
 ## Develop
 
 ```bash
 npm install
+cp .env.example .env.local   # fill in keys
 npm run dev
 ```

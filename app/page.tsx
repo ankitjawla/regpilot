@@ -6,12 +6,26 @@ import { Card, SectionTitle, Stat, StatusBadge, ConfidenceBadge, UrgencyBadge, B
 
 type JevMeta = {
   version: string;
-  trained_at: string;
-  total_size_mb: number;
-  tasks: Record<
+  primary?: string;
+  typesafe?: { configured: boolean; model: string; endpoint: string };
+  local?: {
+    version?: string;
+    trained_at?: string;
+    total_size_mb?: number;
+    unavailable?: boolean;
+    tasks?: Record<
+      string,
+      { accuracy: number; n_train: number; n_holdout: number; classes: string[] }
+    >;
+  };
+  // Legacy flat shape from older jev/meta.json responses
+  trained_at?: string;
+  total_size_mb?: number;
+  tasks?: Record<
     string,
     { accuracy: number; n_train: number; n_holdout: number; classes: string[] }
   >;
+  unavailable?: boolean;
 };
 
 type Stats = {
@@ -45,7 +59,7 @@ export default function Dashboard() {
       .catch(() => setError("Could not load dashboard."));
     fetch("/api/jevmeta")
       .then((r) => r.json())
-      .then((d) => (d.unavailable ? null : setJevMeta(d)))
+      .then((d) => setJevMeta(d))
       .catch(() => {});
   }, []);
 
@@ -145,37 +159,61 @@ export default function Dashboard() {
       <Card className="mt-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <SectionTitle>How Jev works</SectionTitle>
-          {jevMeta && <Badge color="green">{jevMeta.version} · local, no API calls</Badge>}
+          {jevMeta && (
+            <Badge color="green">
+              {jevMeta.typesafe?.configured
+                ? `TypeSafe ${jevMeta.typesafe.model}`
+                : `${jevMeta.version} · local fallback`}
+            </Badge>
+          )}
         </div>
         {!jevMeta ? (
           <p className="text-sm text-stone-500">Loading model info…</p>
         ) : (
           <div>
             <p className="text-sm text-stone-600">
-              A trained small model (TF-IDF + logistic regression, probability-calibrated)
-              runs inside this app and handles triage, injection screening and the
-              confidence gate — the large Azure model only drafts memos.{" "}
-              {jevMeta.total_size_mb} MB on disk, trained{" "}
-              {new Date(jevMeta.trained_at).toLocaleDateString()}.
+              {jevMeta.typesafe?.configured ? (
+                <>
+                  <strong>TypeSafe System One (Jev)</strong> handles triage, injection
+                  screening, and the confidence gate with typed Choice / Noul / Score
+                  judgments. Azure OpenAI (<code>gpt-5.4</code>) only drafts memos and
+                  extracts obligations. Local TF-IDF classifiers remain as automatic
+                  fallback if TypeSafe is unreachable.
+                </>
+              ) : (
+                <>
+                  A trained small model (TF-IDF + logistic regression) handles triage,
+                  injection screening and the confidence gate — the large Azure model
+                  only drafts memos. Set <code>TYPESAFE_API_KEY</code> to prefer TypeSafe
+                  System One.
+                </>
+              )}
             </p>
-            <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
-              {Object.entries(jevMeta.tasks).map(([task, t]) => (
-                <div key={task} className="rounded-lg bg-stone-50 p-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-stone-500">
-                    {task}
-                  </div>
-                  <div className="mt-1 text-lg font-bold">
-                    {(t.accuracy * 100).toFixed(1)}%
-                  </div>
-                  <div className="text-xs text-stone-500">
-                    holdout accuracy · {t.n_train + t.n_holdout} examples
-                  </div>
+            {(() => {
+              const local = jevMeta.local || jevMeta;
+              const tasks = local.tasks;
+              if (!tasks) return null;
+              return (
+                <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+                  {Object.entries(tasks).map(([task, t]) => (
+                    <div key={task} className="rounded-lg bg-stone-50 p-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-stone-500">
+                        {task}
+                      </div>
+                      <div className="mt-1 text-lg font-bold">
+                        {(t.accuracy * 100).toFixed(1)}%
+                      </div>
+                      <div className="text-xs text-stone-500">
+                        local holdout · {t.n_train + t.n_holdout} examples
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              );
+            })()}
             <p className="mt-3 text-xs text-stone-500">
-              Trained on synthetic fictional regulatory text (see jev/README.md). The audit
-              log records whether each step used jev-local-v1 or the Azure fallback.
+              Audit log records which decision layer ran each step (TypeSafe model id,
+              jev-local-v1, or Azure deployment). Local models: see jev/README.md.
             </p>
           </div>
         )}
