@@ -28,8 +28,9 @@ PII_PATTERNS = [
     # space and "(" so the old pattern missed "(555) 010-2030" after a space.
     ("phone number", re.compile(r"(?:\(\d{3}\)\s?|\b\d{3}[-.\s])\d{3}[-.\s]\d{4}\b")),
     ("email address", re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")),
+    # Keywords accept Title Case ("Borrower:") — lowercase-only missed form labels.
     ("personal name", re.compile(
-        r"\b(?:borrower|customer|client|name|officer)\s*:\s*"
+        r"\b(?:[Bb]orrower|[Cc]ustomer|[Cc]lient|[Nn]ame|[Oo]fficer)\s*:\s*"
         r"[A-Z][a-z]+(?:\s+[A-Z][a-z.]+){1,2}")),
 ]
 

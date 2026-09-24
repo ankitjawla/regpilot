@@ -90,6 +90,7 @@ no manual migration step:
 - `GET /api/samples` — the five fictional samples
 - `GET /api/stats` — dashboard numbers
 - `GET /api/jevmeta` — TypeSafe + local model metadata
+- `GET /api/health` — readiness (TypeSafe / Azure / DB configured; no secrets)
 
 ## Develop
 
@@ -97,4 +98,5 @@ no manual migration step:
 npm install
 cp .env.example .env.local   # fill in keys
 npm run dev
+npm run smoke                # end-to-end TypeSafe + Azure + Neon checks
 ```

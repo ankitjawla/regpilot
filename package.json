@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "smoke": "node --env-file=.env.local scripts/smoke.mjs"
   },
   "dependencies": {
     "@typesafe-ai/sdk": "^0.6.0",
