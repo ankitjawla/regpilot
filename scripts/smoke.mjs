@@ -71,6 +71,12 @@ async function main() {
       "corep-own-funds",
       "finrep-credit-quality",
       "call-report-ffiec031",
+      "ccar-cre-liquidity-overlay",
+      "dodd-frank-volcker-metrics",
+      "corep-finrep-reconciliation",
+      "call-report-schedules-liquidity",
+      "bsa-ofac-sanctions-program",
+      "finrep-ecl-governance",
     ]) {
       assert(ids.includes(need), `missing sample ${need}`);
     }
