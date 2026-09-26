@@ -302,10 +302,10 @@ export async function runPostDraftEnhancements(
   };
 }
 
-export function applyConfidencePatch(
-  confidence: ConfidenceScore,
+export function applyConfidencePatch<T extends ConfidenceScore>(
+  confidence: T,
   patch: EnhanceResult["confidencePatch"]
-): ConfidenceScore {
+): T {
   const next = { ...confidence, reasons: [...confidence.reasons] };
   if (patch.softCap != null) {
     next.score = Math.min(next.score, patch.softCap);

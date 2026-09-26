@@ -414,23 +414,17 @@ function mergeAgentBlock<T extends Record<string, unknown>>(
       (next as Record<string, unknown>)[k as string] = fallback;
     }
   }
-  if ("enabled" in base) {
-    (next as { enabled: boolean }).enabled =
-      (patch as { enabled?: boolean }).enabled !== false;
+  const p = patch as Record<string, unknown>;
+  const b = base as Record<string, unknown>;
+  const n = next as Record<string, unknown>;
+  if ("enabled" in b) {
+    n.enabled = p.enabled !== false;
   }
-  if ("label" in base && "label" in patch) {
-    (next as { label: string }).label = clip(
-      (patch as { label?: string }).label,
-      80,
-      (base as { label: string }).label
-    );
+  if ("label" in b) {
+    n.label = clip(p.label, 80, String(b.label));
   }
-  if ("description" in base && "description" in patch) {
-    (next as { description: string }).description = clip(
-      (patch as { description?: string }).description,
-      500,
-      (base as { description: string }).description
-    );
+  if ("description" in b) {
+    n.description = clip(p.description, 500, String(b.description));
   }
   return next;
 }
