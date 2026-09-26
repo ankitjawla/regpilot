@@ -431,8 +431,13 @@ export default function ItemDetail({
             data.provenance?.judgments) && (
             <Card>
               <SectionTitle eyebrow="Provenance">
-                Policy + System One
+                Policy + Jev judgments
               </SectionTitle>
+              <p className="mb-3 text-xs leading-relaxed text-[var(--ink-mute)]">
+                Noul = Jev’s yes/no probability (0–1). Choice = label +
+                confidence. These numbers drove routing and the gate for this
+                package.
+              </p>
               <div className="mb-3 flex flex-wrap gap-2">
                 {data.provenance?.preset && (
                   <Badge color="blue">{data.provenance.preset}</Badge>
@@ -447,7 +452,7 @@ export default function ItemDetail({
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div className="rounded-xl bg-[var(--paper-2)] p-3">
                     <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-mute)]">
-                      Injection noul
+                      Injection probability
                     </div>
                     <div className="font-display text-xl font-semibold">
                       {data.provenance.judgments.triage.injectionNoul != null
@@ -456,10 +461,13 @@ export default function ItemDetail({
                           )
                         : "—"}
                     </div>
+                    <div className="mt-0.5 text-[10px] text-[var(--ink-mute)]">
+                      noul · is this a jailbreak?
+                    </div>
                   </div>
                   <div className="rounded-xl bg-[var(--paper-2)] p-3">
                     <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-mute)]">
-                      Escalate noul
+                      Escalate probability
                     </div>
                     <div className="font-display text-xl font-semibold">
                       {data.provenance.judgments.triage.escalateNoul != null
@@ -467,6 +475,9 @@ export default function ItemDetail({
                             2
                           )
                         : "—"}
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-[var(--ink-mute)]">
+                      noul · needs full analysis?
                     </div>
                   </div>
                   <div className="col-span-2 space-y-1 rounded-xl bg-[var(--paper-2)] p-3 text-xs text-[var(--ink-2)]">

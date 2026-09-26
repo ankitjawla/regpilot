@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Badge, SectionTitle } from "@/components/ui";
 import type { AgentConfig, WorkflowStep } from "@/lib/agents";
+import { AGENT_PLAIN, type AgentKeyForPrimer } from "@/lib/jev-primer";
 
 const RUNTIME_COLOR: Record<
   WorkflowStep["runtime"],
@@ -70,6 +71,33 @@ export function WorkflowDetailSheet({
 
       <p className="text-sm leading-relaxed text-[var(--ink-2)]">{step.role}</p>
 
+      {step.runtime === "typesafe" && (
+        <div className="mt-3 rounded-xl border border-[var(--sage)]/30 bg-[var(--sage-soft)]/50 p-3 text-xs leading-relaxed text-[var(--ink-2)]">
+          <span className="font-semibold text-[var(--ink)]">Jev here: </span>
+          answers typed yes/no (noul), label (Choice), or graded (Score)
+          questions — it does not write the memo. Numbers feed routing, review,
+          and the examiner package.
+        </div>
+      )}
+      {step.runtime === "azure" && (
+        <div className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--paper-2)] p-3 text-xs leading-relaxed text-[var(--ink-2)]">
+          <span className="font-semibold text-[var(--ink)]">Azure here: </span>
+          drafts obligations and memo prose after the guardrail passes. Jev may
+          still verify fields and dates around this step.
+        </div>
+      )}
+
+      {step.agentKey && AGENT_PLAIN[step.agentKey as AgentKeyForPrimer] && (
+        <div className="mt-3 rounded-xl border border-[var(--line)] bg-white p-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-mute)]">
+            What Jev / this step answers
+          </div>
+          <p className="mt-1 text-sm leading-relaxed text-[var(--ink)]">
+            {AGENT_PLAIN[step.agentKey as AgentKeyForPrimer].jevDoes}
+          </p>
+        </div>
+      )}
+
       <div className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--paper-2)] p-3">
         <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-mute)]">
           Real implementation
@@ -107,23 +135,26 @@ export function WorkflowDetailSheet({
               </Badge>
               {step.agentKey === "guardrail" && config && (
                 <Badge color="slate">
-                  inject ≥ {config.guardrail.injectionBlockThreshold.toFixed(2)}
+                  block if injection ≥{" "}
+                  {config.guardrail.injectionBlockThreshold.toFixed(2)}
                 </Badge>
               )}
               {step.agentKey === "triage" && config && (
                 <Badge color="slate">
-                  escalate ≥{" "}
+                  full path if escalate ≥{" "}
                   {config.triage.escalateFullPathThreshold.toFixed(2)}
                 </Badge>
               )}
               {step.agentKey === "grounding" && config && (
                 <Badge color="slate">
-                  support &lt; {config.grounding.supportThreshold.toFixed(2)}
+                  soft-fail if support &lt;{" "}
+                  {config.grounding.supportThreshold.toFixed(2)}
                 </Badge>
               )}
               {step.agentKey === "gate" && config && (
                 <Badge color="slate">
-                  auto &gt; {config.gate.autoApproveAbove.toFixed(2)}
+                  auto-approve if score ≥{" "}
+                  {config.gate.autoApproveAbove.toFixed(2)}
                 </Badge>
               )}
             </div>
@@ -131,7 +162,7 @@ export function WorkflowDetailSheet({
               href="/agents"
               className="mt-4 inline-block text-xs font-semibold text-[var(--sky)] hover:underline"
             >
-              Edit this agent →
+              Edit thresholds & Jev glossary →
             </Link>
           </>
         ) : (
