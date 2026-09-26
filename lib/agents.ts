@@ -159,14 +159,14 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
     enabled: true,
     label: "Guardrail agent",
     description:
-      "Regex PII redaction first, then TypeSafe injection noul. Blocked inputs never reach Azure.",
+      "Redact PII first, then ask Jev “is this prompt injection?” Blocked inputs never reach Azure.",
     injectionBlockThreshold: 0.55,
   },
   triage: {
     enabled: true,
     label: "Triage agent (System One)",
     description:
-      "TypeSafe Choice + Noul judgments for category, urgency, jurisdiction, escalate, uncertainty bands, coarse taxonomy, beam.",
+      "Jev labels category, urgency, and jurisdiction, and scores whether to escalate — with an uncertain band for borderline answers.",
     escalateFullPathThreshold: 0.75,
     fastPathMinConfidence: 0.8,
     escalateConfidenceCeiling: 0.85,
@@ -180,7 +180,7 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
     enabled: true,
     label: "Router",
     description:
-      "Rules over triage + escalate noul. Critical / escalate → full Azure; high-conf routine → fast path.",
+      "Rules that choose Azure small vs full analysis from triage numbers (escalate noul + confidence).",
     routineCategories: ["Consumer Compliance", "Other", "Operational Risk"],
     preferCoarseForRouting: true,
   },
@@ -188,7 +188,7 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
     enabled: true,
     label: "Draft agent (Azure)",
     description:
-      "Azure OpenAI extracts obligations (optional SDE cascade) and drafts the memo. Typed due-date extract via TypeSafe.",
+      "Azure extracts obligations and drafts the memo. Jev can verify fields (cascade) and assemble due dates.",
     obligationSystemPrompt: DEFAULT_OBLIGATION_PROMPT,
     memoSystemPrompt: DEFAULT_MEMO_PROMPT,
     sdeCascadeEnabled: true,
@@ -201,7 +201,7 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
     enabled: true,
     label: "Grounding agent (System One)",
     description:
-      "Citation-grade locate + Choice (supports/contradicts/says_nothing/fabricated). Soft-fails cap confidence.",
+      "Find the quote in the source, then Jev chooses supports / contradicts / says nothing (or fabricated if missing).",
     supportThreshold: 0.55,
     inventedThreshold: 0.55,
     citationAutoAccept: 0.8,
@@ -210,7 +210,7 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
     enabled: true,
     label: "Confidence agent (System One)",
     description:
-      "Composite of grounded / complete / actionable nouls plus overall score. Weights editable; recompute without re-inference.",
+      "Blend grounded / complete / actionable yes-probabilities with an overall quality score. Weights are editable.",
     weightGrounded: 0.25,
     weightComplete: 0.25,
     weightActionable: 0.25,
@@ -220,7 +220,7 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
     enabled: true,
     label: "Confidence gate",
     description:
-      "Deterministic thresholds: auto-approve, human confirm, or needs-work. Uncertain bands force confirm.",
+      "Turn the package score into auto-approve, human review, or needs work. Uncertain steps can force review.",
     autoApproveAbove: 0.9,
     humanConfirmAbove: 0.5,
     forceConfirmOnUncertain: true,
@@ -229,7 +229,7 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
     enabled: true,
     label: "Outbound hazard screen",
     description:
-      "After memo draft: hazard nouls + harm severity → pass / review / block before gate.",
+      "After the memo is drafted, Jev screens for overclaim / residual risk and a harm severity before the gate.",
     blockSeverityAbove: 3.2,
     reviewSeverityAbove: 1.8,
     hazardNoulBlock: 0.7,
@@ -238,14 +238,14 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
     enabled: true,
     label: "Playbook coverage",
     description:
-      "Batched TypeSafe Noul/Score per playbook checklist step; soft-suggest missing steps.",
+      "For each framework checklist step, Jev scores whether the source evidences it; gaps become open questions.",
     coveredThreshold: 0.55,
   },
   dedupe: {
     enabled: true,
     label: "Obligation dedupe",
     description:
-      "Score alignment (same/related/different) + field nouls for Review curator merges.",
+      "Jev scores obligation pairs as same / related / different so Review can merge duplicates.",
   },
 };
 
@@ -275,7 +275,7 @@ export const WORKFLOW_STEPS: WorkflowStep[] = [
   {
     id: "guardrail",
     title: "Guardrail",
-    role: "PII redaction + injection screen before any drafting model runs.",
+    role: "Strip PII, then ask Jev if the text is prompt injection. Blocked text never reaches Azure.",
     implementation: "lib/redact.ts · lib/jev.ts#jevGuardrail · lib/typesafe.ts#typesafeTriage",
     apis: ["POST /api/triage", "POST /api/pipeline"],
     runtime: "typesafe",
@@ -284,7 +284,7 @@ export const WORKFLOW_STEPS: WorkflowStep[] = [
   {
     id: "triage",
     title: "Triage",
-    role: "Typed category / urgency / jurisdiction + escalate noul + uncertainty bands + coarse/beam.",
+    role: "Jev picks category / urgency / jurisdiction and scores whether to escalate (with an uncertain mid-band).",
     implementation: "lib/jev.ts#jevClassify · lib/typesafe.ts#typesafeTriage",
     apis: ["POST /api/triage", "POST /api/pipeline"],
     runtime: "typesafe",
@@ -293,7 +293,7 @@ export const WORKFLOW_STEPS: WorkflowStep[] = [
   {
     id: "router",
     title: "Router",
-    role: "Fast path (small Azure) vs full analysis (gpt-5.4).",
+    role: "Rules choose Azure small (fast) vs gpt-5.4 (full) from triage numbers.",
     implementation: "lib/jev.ts#routeDecision",
     apis: ["POST /api/triage", "POST /api/pipeline"],
     runtime: "rules",
@@ -302,7 +302,7 @@ export const WORKFLOW_STEPS: WorkflowStep[] = [
   {
     id: "draft",
     title: "Draft",
-    role: "Obligation extraction (SDE cascade) + due dates + memo generation.",
+    role: "Azure writes obligations and the memo; Jev can verify fields and assemble due dates.",
     implementation: "lib/jev.ts#extractObligationsCascade · lib/jev.ts#draftMemo",
     apis: ["POST /api/analyze", "POST /api/pipeline"],
     runtime: "azure",
@@ -311,7 +311,7 @@ export const WORKFLOW_STEPS: WorkflowStep[] = [
   {
     id: "dedupe",
     title: "Obligation dedupe",
-    role: "Alignment score + field nouls for curator merges.",
+    role: "Jev scores pairs same / related / different so reviewers can merge duplicates.",
     implementation: "lib/typesafe.ts#typesafeDedupeObligations",
     apis: ["POST /api/analyze", "POST /api/pipeline"],
     runtime: "typesafe",
@@ -320,7 +320,7 @@ export const WORKFLOW_STEPS: WorkflowStep[] = [
   {
     id: "grounding",
     title: "Grounding",
-    role: "Citation-grade check of obligations and memo vs source.",
+    role: "Locate each quote, then Jev chooses supports / contradicts / says nothing (or fabricated).",
     implementation: "lib/typesafe.ts#typesafeGroundObligations",
     apis: ["POST /api/analyze", "POST /api/pipeline"],
     runtime: "typesafe",
@@ -329,7 +329,7 @@ export const WORKFLOW_STEPS: WorkflowStep[] = [
   {
     id: "playbook",
     title: "Playbook coverage",
-    role: "Coverage vector over framework checklist steps.",
+    role: "For each checklist step, Jev scores whether the source evidences it.",
     implementation: "lib/typesafe.ts#typesafePlaybookCoverage",
     apis: ["POST /api/analyze", "POST /api/pipeline"],
     runtime: "typesafe",
@@ -338,7 +338,7 @@ export const WORKFLOW_STEPS: WorkflowStep[] = [
   {
     id: "hazard",
     title: "Hazard screen",
-    role: "Outbound memo hazard nouls + severity before gate.",
+    role: "Jev screens the outbound memo for overclaim / residual harm before the gate.",
     implementation: "lib/typesafe.ts#typesafeMemoHazard",
     apis: ["POST /api/analyze", "POST /api/pipeline"],
     runtime: "typesafe",
@@ -347,7 +347,7 @@ export const WORKFLOW_STEPS: WorkflowStep[] = [
   {
     id: "confidence",
     title: "Confidence",
-    role: "System One quality score with editable weights; may be soft-capped.",
+    role: "Blend Jev quality signals into one package score (weights editable).",
     implementation: "lib/jev.ts#jevConfidence · lib/typesafe.ts#typesafeConfidence",
     apis: ["POST /api/analyze", "POST /api/pipeline"],
     runtime: "typesafe",
@@ -356,7 +356,7 @@ export const WORKFLOW_STEPS: WorkflowStep[] = [
   {
     id: "gate",
     title: "Gate",
-    role: "Auto-approve, pending review, or needs-work (uncertain bands force confirm).",
+    role: "Map the package score to auto-approve, human review, or needs work.",
     implementation: "lib/jev.ts#gateDecision",
     apis: ["POST /api/analyze", "POST /api/pipeline"],
     runtime: "rules",

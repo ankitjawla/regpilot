@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { PageHeader, Badge } from "@/components/ui";
 import type { AgentConfig, WorkflowStep } from "@/lib/agents";
+import { JevPrimerCard } from "@/components/jev-primer";
 import { WorkflowCanvas } from "@/components/workflow/workflow-canvas";
 import { WorkflowDetailSheet } from "@/components/workflow/workflow-detail";
 
@@ -105,7 +106,7 @@ export default function WorkflowPage() {
     <div>
       <PageHeader
         title="Workflow"
-        subtitle="End-to-end map of RegPilot — each node points at the real implementation that runs in production."
+        subtitle="End-to-end map of RegPilot — green nodes are Jev (System One) judgments; blue is Azure drafting; rules and humans close the loop."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
@@ -129,6 +130,10 @@ export default function WorkflowPage() {
           {error}
         </div>
       )}
+
+      <div className="mb-4">
+        <JevPrimerCard compact />
+      </div>
 
       <section className="rp-flow-stage">
         <div className="rp-flow-stage-head">

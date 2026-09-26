@@ -8,7 +8,9 @@ import {
   Badge,
   PageHeader,
 } from "@/components/ui";
+import { AgentPlainEnglish, JevPrimerCard } from "@/components/jev-primer";
 import type { AgentConfig } from "@/lib/agents";
+import type { AgentKeyForPrimer } from "@/lib/jev-primer";
 
 type AgentKey = Exclude<
   keyof AgentConfig,
@@ -142,7 +144,7 @@ export default function AgentsPage() {
     <div>
       <PageHeader
         title="Agents"
-        subtitle="Edit System One / Azure / gate policies. Thresholds apply on the next triage, pipeline, or analyze call."
+        subtitle="Tune how Jev (System One) judges risk and quality, and how Azure drafts. Changes apply on the next triage, pipeline, or analyze run."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
@@ -193,9 +195,11 @@ export default function AgentsPage() {
           <p className="text-sm text-[var(--ink-mute)]">Loading agents…</p>
         </Card>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-12">
+        <div className="space-y-4">
+          <JevPrimerCard />
+          <div className="grid gap-4 lg:grid-cols-12">
           <Card className="lg:col-span-4">
-            <SectionTitle eyebrow="Stack">Decision agents</SectionTitle>
+            <SectionTitle eyebrow="Stack">Pipeline agents</SectionTitle>
             <p className="mb-3 text-xs text-[var(--ink-mute)]">
               Config v{config.version} · preset{" "}
               <Badge color="slate">{config.preset}</Badge>
@@ -240,6 +244,8 @@ export default function AgentsPage() {
           <div className="space-y-4 lg:col-span-8">
             {agent && (
               <>
+                <AgentPlainEnglish agentKey={selected as AgentKeyForPrimer} />
+
                 <Card>
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                     <SectionTitle eyebrow="Agent">{agent.label}</SectionTitle>
@@ -266,7 +272,7 @@ export default function AgentsPage() {
                   </label>
                   <label className="block">
                     <span className="mb-1 block text-xs font-semibold text-[var(--ink-mute)]">
-                      Role description
+                      Short role (shown on workflow)
                     </span>
                     <textarea
                       value={agent.description}
@@ -281,73 +287,79 @@ export default function AgentsPage() {
 
                 <Card>
                   <SectionTitle eyebrow="Policy">Thresholds</SectionTitle>
+                  <p className="mt-1 text-xs text-[var(--ink-mute)]">
+                    Numbers are probabilities or scores from 0 to 1 unless noted.
+                    Lower block/escalate cutoffs = stricter.
+                  </p>
                   <div className="mt-3 space-y-4">
                     {selected === "guardrail" && "injectionBlockThreshold" in agent && (
                       <Threshold
-                        label="Injection block noul"
+                        label="Block when injection probability ≥"
                         value={agent.injectionBlockThreshold}
                         onChange={(n) =>
                           patchSelected({ injectionBlockThreshold: n })
                         }
-                        hint="TypeSafe injection noul at/above this blocks the input."
+                        hint="Jev noul for “is this prompt injection?” At or above this value, intake is blocked and Azure never runs. Example: 0.55 blocks likely attacks; 0.04 is very strict."
                       />
                     )}
                     {selected === "triage" &&
                       "escalateFullPathThreshold" in agent && (
                         <>
                           <Threshold
-                            label="Escalate → full path"
+                            label="Escalate when urgency probability ≥"
                             value={agent.escalateFullPathThreshold}
                             onChange={(n) =>
                               patchSelected({ escalateFullPathThreshold: n })
                             }
-                            hint="Escalate noul at/above this forces full Azure analysis (when non-routine or low conf)."
+                            hint="Jev escalate noul. At/above this, prefer full Azure analysis instead of the cheap path."
                           />
                           <Threshold
-                            label="Fast-path min confidence"
+                            label="Fast path needs category confidence ≥"
                             value={agent.fastPathMinConfidence}
                             onChange={(n) =>
                               patchSelected({ fastPathMinConfidence: n })
                             }
+                            hint="Only skip the large model when triage is at least this sure about the category."
                           />
                           <Threshold
-                            label="Escalate confidence ceiling"
+                            label="Escalate routine items if confidence &lt;"
                             value={agent.escalateConfidenceCeiling}
                             onChange={(n) =>
                               patchSelected({ escalateConfidenceCeiling: n })
                             }
-                            hint="Routine items only escalate when confidence is below this."
+                            hint="Even “routine” categories take the full path when confidence is below this."
                           />
                           <Threshold
-                            label="Noul uncertain band low"
+                            label="Uncertain band — low"
                             value={agent.noulUncertainLow}
                             onChange={(n) =>
                               patchSelected({ noulUncertainLow: n })
                             }
-                            hint="Nouls in [low, high] → explicit uncertain."
+                            hint="Yes/no nouls between low and high are marked uncertain (needs human confirm), not a hard yes/no."
                           />
                           <Threshold
-                            label="Noul uncertain band high"
+                            label="Uncertain band — high"
                             value={agent.noulUncertainHigh}
                             onChange={(n) =>
                               patchSelected({ noulUncertainHigh: n })
                             }
+                            hint="Above this ≈ clear yes; below the low ≈ clear no."
                           />
                           <Threshold
-                            label="Choice min confidence"
+                            label="Choice must be this confident"
                             value={agent.choiceMinConfidence}
                             onChange={(n) =>
                               patchSelected({ choiceMinConfidence: n })
                             }
-                            hint="Below this → uncertain choice band."
+                            hint="If category/urgency/jurisdiction confidence is below this, the choice is uncertain."
                           />
                           <Threshold
-                            label="Coarse taxonomy cutoff"
+                            label="Use coarse label if fine confidence &lt;"
                             value={agent.coarseTaxonomyCutoff}
                             onChange={(n) =>
                               patchSelected({ coarseTaxonomyCutoff: n })
                             }
-                            hint="Fine category confidence below this → report coarse parent."
+                            hint="Example: report “Financial Crime” instead of a shaky “AML-BSA” leaf."
                           />
                           <label className="flex items-center gap-2 text-sm font-semibold">
                             <input
@@ -359,7 +371,7 @@ export default function AgentsPage() {
                                 })
                               }
                             />
-                            Hierarchical beam classify
+                            Also classify domain → framework → topic (beam)
                           </label>
                         </>
                       )}
@@ -378,11 +390,12 @@ export default function AgentsPage() {
                           SDE cascade (small → verify → big)
                         </label>
                         <Threshold
-                          label="Cascade fire threshold"
+                          label="Re-run large model if field looks wrong ≥"
                           value={agent.sdeFireThreshold}
                           onChange={(n) =>
                             patchSelected({ sdeFireThreshold: n })
                           }
+                          hint="Jev noul that an extracted field is wrong. At/above this, escalate from Azure small → big."
                         />
                         <label className="flex items-center gap-2 text-sm font-semibold">
                           <input
@@ -394,14 +407,15 @@ export default function AgentsPage() {
                               })
                             }
                           />
-                          Typed due-date extraction
+                          Extract due dates with Jev (typed parts)
                         </label>
                         <Threshold
-                          label="Due-date review below"
+                          label="Flag due date for review if confidence &lt;"
                           value={agent.dueDateReviewBelow}
                           onChange={(n) =>
                             patchSelected({ dueDateReviewBelow: n })
                           }
+                          hint="Assembled ISO dates below this confidence are marked needs_review."
                         />
                         <label className="flex items-center gap-2 text-sm font-semibold">
                           <input
@@ -413,7 +427,7 @@ export default function AgentsPage() {
                               })
                             }
                           />
-                          Force human confirm on due-date review
+                          Force human confirm when any due date needs review
                         </label>
                         <Link
                           href="/settings"
@@ -426,26 +440,28 @@ export default function AgentsPage() {
                     {selected === "grounding" && "supportThreshold" in agent && (
                       <>
                         <Threshold
-                          label="Overall support soft-fail below"
+                          label="Soft-fail if overall support &lt;"
                           value={agent.supportThreshold}
                           onChange={(n) =>
                             patchSelected({ supportThreshold: n })
                           }
+                          hint="Average “is this supported by the source?” noul below this caps confidence."
                         />
                         <Threshold
-                          label="Invented-claims soft-fail above"
+                          label="Soft-fail if invented-claims probability ≥"
                           value={agent.inventedThreshold}
                           onChange={(n) =>
                             patchSelected({ inventedThreshold: n })
                           }
+                          hint="Jev noul that the memo invents claims not in the source."
                         />
                         <Threshold
-                          label="Citation auto-accept confidence"
+                          label="Auto-accept citation if confidence ≥"
                           value={agent.citationAutoAccept}
                           onChange={(n) =>
                             patchSelected({ citationAutoAccept: n })
                           }
-                          hint="Below this → needs human confirm on citation verdict."
+                          hint="Citation Choice (supports / contradicts / says nothing). Below this → human confirm."
                         />
                       </>
                     )}
@@ -453,98 +469,106 @@ export default function AgentsPage() {
                       "weightGrounded" in agent && (
                         <>
                           <Threshold
-                            label="Weight · grounded"
+                            label="How much grounded matters"
                             value={agent.weightGrounded}
                             onChange={(n) =>
                               patchSelected({ weightGrounded: n })
                             }
+                            hint="Weight on the “facts match the source” noul."
                           />
                           <Threshold
-                            label="Weight · complete"
+                            label="How much complete matters"
                             value={agent.weightComplete}
                             onChange={(n) =>
                               patchSelected({ weightComplete: n })
                             }
+                            hint="Weight on whether obligations look complete."
                           />
                           <Threshold
-                            label="Weight · actionable"
+                            label="How much actionable matters"
                             value={agent.weightActionable}
                             onChange={(n) =>
                               patchSelected({ weightActionable: n })
                             }
+                            hint="Weight on whether next actions are clear."
                           />
                           <Threshold
-                            label="Weight · overall score"
+                            label="How much overall quality score matters"
                             value={agent.weightOverall}
                             onChange={(n) =>
                               patchSelected({ weightOverall: n })
                             }
+                            hint="Weight on Jev’s graded quality Score."
                           />
                           <p className="text-xs text-[var(--ink-mute)]">
-                            Weights renormalize at score time. Use Recompute on
-                            an item detail page to apply new weights without
-                            re-inference.
+                            Weights are renormalized when scoring. On an item
+                            page, Recompute applies new weights without calling
+                            Jev again.
                           </p>
                         </>
                       )}
                     {selected === "hazard" && "blockSeverityAbove" in agent && (
                       <>
                         <Threshold
-                          label="Block severity above (0–4)"
+                          label="Block export if harm severity ≥ (0–4 scale)"
                           value={agent.blockSeverityAbove / 4}
                           onChange={(n) =>
                             patchSelected({ blockSeverityAbove: n * 4 })
                           }
-                          hint={`Severity ≥ ${agent.blockSeverityAbove.toFixed(2)} blocks.`}
+                          hint={`Current cutoff: ${agent.blockSeverityAbove.toFixed(2)} / 4. Slider is normalized 0–1 for editing.`}
                         />
                         <Threshold
-                          label="Review severity above (0–4)"
+                          label="Send to review if harm severity ≥"
                           value={agent.reviewSeverityAbove / 4}
                           onChange={(n) =>
                             patchSelected({ reviewSeverityAbove: n * 4 })
                           }
+                          hint={`Current cutoff: ${agent.reviewSeverityAbove.toFixed(2)} / 4.`}
                         />
                         <Threshold
-                          label="Hazard noul block"
+                          label="Also block if any hazard probability ≥"
                           value={agent.hazardNoulBlock}
                           onChange={(n) =>
                             patchSelected({ hazardNoulBlock: n })
                           }
+                          hint="Max of hazard nouls (overclaim, PII leak, etc.)."
                         />
                       </>
                     )}
                     {selected === "playbook" && "coveredThreshold" in agent && (
                       <Threshold
-                        label="Step covered noul threshold"
+                        label="Checklist step counts as covered if ≥"
                         value={agent.coveredThreshold}
                         onChange={(n) =>
                           patchSelected({ coveredThreshold: n })
                         }
+                        hint="Jev noul that the source evidences that playbook step."
                       />
                     )}
                     {selected === "dedupe" && (
                       <p className="text-sm text-[var(--ink-mute)]">
-                        When enabled, pairs of obligations are scored
-                        same/related/different for the Review curator merge
-                        action.
+                        When enabled, Jev scores obligation pairs as same,
+                        related, or different. Review can merge suggested
+                        duplicates before export.
                       </p>
                     )}
                     {selected === "gate" && "autoApproveAbove" in agent && (
                       <>
                         <Threshold
-                          label="Auto-approve above"
+                          label="Auto-approve if package score ≥"
                           value={agent.autoApproveAbove}
                           onChange={(n) =>
                             patchSelected({ autoApproveAbove: n })
                           }
+                          hint="Composite confidence from the Confidence agent."
                         />
                         <Threshold
-                          label="Human confirm above"
+                          label="Human review if score ≥ (else needs work)"
                           value={agent.humanConfirmAbove}
                           onChange={(n) =>
                             patchSelected({ humanConfirmAbove: n })
                           }
-                          hint="Below this → needs_work; between this and auto-approve → pending_review."
+                          hint="Below this → needs_work. Between this and auto-approve → pending_review."
                         />
                         <label className="flex items-center gap-2 text-sm font-semibold">
                           <input
@@ -556,7 +580,7 @@ export default function AgentsPage() {
                               })
                             }
                           />
-                          Force confirm on uncertain bands
+                          Always require a human when any step is uncertain
                         </label>
                       </>
                     )}
@@ -597,24 +621,29 @@ export default function AgentsPage() {
                 </Card>
 
                 <Card>
-                  <SectionTitle eyebrow="Runtime">Where it runs</SectionTitle>
+                  <SectionTitle eyebrow="Runtime">Where it runs in code</SectionTitle>
+                  <p className="mt-1 text-xs text-[var(--ink-mute)]">
+                    Jev calls go through TypeSafe System One (`jev-latest`). Azure
+                    only drafts text after the guardrail passes.
+                  </p>
                   <ul className="mt-2 space-y-1.5 text-sm text-[var(--ink-2)]">
                     {selected === "guardrail" && (
                       <>
                         <li>
                           <code className="font-mono text-xs">lib/redact.ts</code>{" "}
-                          — deterministic PII
+                          — strip PII with regex before any model sees the text
                         </li>
                         <li>
                           <code className="font-mono text-xs">
                             lib/jev.ts#jevGuardrail
-                          </code>
+                          </code>{" "}
+                          — orchestrates block / pass
                         </li>
                         <li>
                           <code className="font-mono text-xs">
                             lib/typesafe.ts#typesafeTriage
                           </code>{" "}
-                          — injection noul
+                          — Jev injection yes/no probability
                         </li>
                       </>
                     )}
@@ -623,14 +652,16 @@ export default function AgentsPage() {
                         <code className="font-mono text-xs">
                           lib/typesafe.ts#typesafeTriage
                         </code>{" "}
-                        · Choice + escalate Noul
+                        — Choices (category / urgency / jurisdiction) + escalate
+                        noul
                       </li>
                     )}
                     {selected === "router" && (
                       <li>
                         <code className="font-mono text-xs">
                           lib/jev.ts#routeDecision
-                        </code>
+                        </code>{" "}
+                        — rules over triage numbers (no new Jev call)
                       </li>
                     )}
                     {selected === "draft" && (
@@ -638,13 +669,35 @@ export default function AgentsPage() {
                         <code className="font-mono text-xs">
                           lib/jev.ts#extractObligations / draftMemo
                         </code>{" "}
-                        · Azure gpt-5.4
+                        — Azure writes; Jev may verify fields / dates
+                      </li>
+                    )}
+                    {selected === "dedupe" && (
+                      <li>
+                        <code className="font-mono text-xs">
+                          lib/typesafe.ts#typesafeDedupeObligations
+                        </code>
                       </li>
                     )}
                     {selected === "grounding" && (
                       <li>
                         <code className="font-mono text-xs">
                           lib/typesafe.ts#typesafeGroundObligations
+                        </code>{" "}
+                        — locate quote + citation Choice
+                      </li>
+                    )}
+                    {selected === "playbook" && (
+                      <li>
+                        <code className="font-mono text-xs">
+                          lib/typesafe.ts#typesafePlaybookCoverage
+                        </code>
+                      </li>
+                    )}
+                    {selected === "hazard" && (
+                      <li>
+                        <code className="font-mono text-xs">
+                          lib/typesafe.ts#typesafeMemoHazard
                         </code>
                       </li>
                     )}
@@ -652,14 +705,16 @@ export default function AgentsPage() {
                       <li>
                         <code className="font-mono text-xs">
                           lib/typesafe.ts#typesafeConfidence
-                        </code>
+                        </code>{" "}
+                        — grounded / complete / actionable + quality Score
                       </li>
                     )}
                     {selected === "gate" && (
                       <li>
                         <code className="font-mono text-xs">
                           lib/jev.ts#gateDecision
-                        </code>
+                        </code>{" "}
+                        — deterministic bands on the package score
                       </li>
                     )}
                   </ul>
@@ -672,6 +727,7 @@ export default function AgentsPage() {
                 </Card>
               </>
             )}
+          </div>
           </div>
         </div>
       )}
