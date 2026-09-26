@@ -12,6 +12,7 @@ import {
   UrgencyBadge,
   PageHeader,
 } from "@/components/ui";
+import { LineFindPanel } from "@/components/line-find-panel";
 
 type QueueItem = {
   id: number;
@@ -397,6 +398,27 @@ export default function ReviewQueue() {
                     </Badge>
                   </div>
                 </Card>
+              )}
+              {selected && (
+                <LineFindPanel
+                  itemId={selected.id}
+                  compact
+                  onSelectLine={() => {
+                    /* Full source highlight lives on /items/[id]#line-find */
+                  }}
+                />
+              )}
+              {selected && (
+                <p className="-mt-2 text-[11px] text-[var(--ink-mute)]">
+                  Open the{" "}
+                  <Link
+                    href={`/items/${selected.id}#line-find`}
+                    className="font-semibold text-[var(--sky)] hover:underline"
+                  >
+                    full package
+                  </Link>{" "}
+                  to jump hits into the numbered source.
+                </p>
               )}
               <Card>
                 <div className="mb-3 flex items-center justify-between">

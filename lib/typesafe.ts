@@ -24,6 +24,18 @@ import {
   type BeamClassifyResult,
   type BeamPath,
 } from "./taxonomy";
+import {
+  FIND_MAX_CHOICE_OPTIONS,
+  findDisposition,
+  lineId,
+  rankLineHits,
+  tagSourceLines,
+  taggedDocument,
+  windowRanges,
+  type FindDisposition,
+  type LineHit,
+  type TaggedLine,
+} from "./line-find";
 
 let client: TypeSafeClient | null = null;
 
@@ -990,6 +1002,188 @@ export type ObligationDedupeResult = {
   pairs: ObligationDedupePair[];
   mergeSuggestions: { aIndex: number; bIndex: number }[];
 };
+
+// ----------------------------------------------------------- semantic line-find
+export type TypesafeLineFindResult = {
+  model: string;
+  latencyMs: number;
+  query: string;
+  existsNoul: number;
+  disposition: FindDisposition;
+  lineCount: number;
+  hits: LineHit[];
+  /** Full relevance vector (document order) when computed in one pass. */
+  relevance?: number[];
+  windowed: boolean;
+};
+
+function lineCriteria(lines: TaggedLine[]): Record<string, null> {
+  const criteria: Record<string, null> = {};
+  for (const l of lines) criteria[l.id] = null;
+  return criteria;
+}
+
+/** One-pass: Noul “does an answer exist?” + Choice over line IDs. */
+async function lineFindOnePass(
+  query: string,
+  lines: TaggedLine[]
+): Promise<{
+  model: string;
+  existsNoul: number;
+  relevance: number[];
+}> {
+  const criteria = lineCriteria(lines);
+  const result = await getClient().systemOne({
+    model: typesafeModel(),
+    state: {
+      document: taggedDocument(lines).slice(0, 24_000),
+      context:
+        "Fictional bank regulatory source (PII already redacted). Line IDs look like L000| text.",
+    },
+    questions: {
+      exists: noul(
+        `Does any line of the document address or answer: "${query}"?`,
+        {
+          true: "At least one line states or directly implies the answer",
+          false: "No line of the document addresses this",
+        }
+      ),
+      where: choice(
+        `Which line of the document contains the answer to: "${query}"?`,
+        criteria
+      ),
+    },
+  });
+  const probs = result.answers.where.probabilities || {};
+  const relevance = lines.map((l) => Number(probs[l.id] ?? 0));
+  return {
+    model: result.model,
+    existsNoul: Number(result.answers.exists.noul ?? 0),
+    relevance,
+  };
+}
+
+/**
+ * Two-pass for long docs: Choice over windows, then Choice over lines in the
+ * winning window; Noul still runs on the full tagged document.
+ */
+async function lineFindWindowed(
+  query: string,
+  lines: TaggedLine[]
+): Promise<{
+  model: string;
+  existsNoul: number;
+  relevance: number[];
+}> {
+  const windows = windowRanges(lines.length, 50);
+  const winCriteria: Record<string, null> = {};
+  for (const w of windows) winCriteria[w.id] = null;
+
+  const windowState = windows
+    .map((w) => {
+      const slice = lines.slice(w.start, w.end);
+      return `${w.id}| lines ${lineId(w.start)}–${lineId(w.end - 1)}\n${taggedDocument(slice)}`;
+    })
+    .join("\n\n")
+    .slice(0, 24_000);
+
+  const winRes = await getClient().systemOne({
+    model: typesafeModel(),
+    state: {
+      document: windowState,
+      context: "Regulatory source chunked into windows for line search.",
+    },
+    questions: {
+      exists: noul(
+        `Does any line of the document address or answer: "${query}"?`,
+        {
+          true: "At least one line states or directly implies the answer",
+          false: "No line of the document addresses this",
+        }
+      ),
+      window: choice(
+        `Which window of the document is most likely to contain the answer to: "${query}"?`,
+        winCriteria
+      ),
+    },
+  });
+
+  const picked = winRes.answers.window.choice;
+  const win =
+    windows.find((w) => w.id === picked) ||
+    windows[0] || { start: 0, end: Math.min(50, lines.length), id: "W000" };
+  const slice = lines.slice(win.start, win.end);
+  const criteria = lineCriteria(slice);
+
+  const whereRes = await getClient().systemOne({
+    model: typesafeModel(),
+    state: {
+      document: taggedDocument(slice).slice(0, 24_000),
+      context: `Window ${win.id} of a longer regulatory source.`,
+    },
+    questions: {
+      where: choice(
+        `Which line of this window contains the answer to: "${query}"?`,
+        criteria
+      ),
+    },
+  });
+
+  const probs = whereRes.answers.where.probabilities || {};
+  const relevance = lines.map((_, i) => {
+    if (i < win.start || i >= win.end) return 0;
+    return Number(probs[lineId(i)] ?? 0);
+  });
+
+  return {
+    model: whereRes.model || winRes.model,
+    existsNoul: Number(winRes.answers.exists.noul ?? 0),
+    relevance,
+  };
+}
+
+/**
+ * Semantic line-find (TypeSafe cookbook): tag redacted source as L000|…, ask
+ * Noul for presence + Choice over line IDs, return ranked hits + disposition.
+ */
+export async function typesafeLineFind(opts: {
+  source: string;
+  query: string;
+  topK?: number;
+}): Promise<TypesafeLineFindResult> {
+  const started = Date.now();
+  const query = opts.query.trim();
+  if (!query) {
+    throw new Error("query is required");
+  }
+  const lines = tagSourceLines(opts.source);
+  if (lines.length < 2) {
+    // Choice requires ≥2 options; pad with a sentinel empty line.
+    while (lines.length < 2) {
+      lines.push({
+        id: lineId(lines.length),
+        index: lines.length,
+        text: "",
+      });
+    }
+  }
+  const windowed = lines.length > FIND_MAX_CHOICE_OPTIONS;
+  const pass = windowed
+    ? await lineFindWindowed(query, lines)
+    : await lineFindOnePass(query, lines);
+  const hits = rankLineHits(lines, pass.relevance, opts.topK ?? 4);
+  return {
+    model: pass.model,
+    latencyMs: Date.now() - started,
+    query,
+    existsNoul: pass.existsNoul,
+    disposition: findDisposition(pass.existsNoul),
+    lineCount: lines.length,
+    hits,
+    relevance: pass.relevance,
+    windowed,
+  };
+}
 
 /** Score alignment between obligation pairs + field nouls for Review curator. */
 export async function typesafeDedupeObligations(opts: {

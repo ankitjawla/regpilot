@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useMemo, useState, use } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import {
@@ -12,6 +12,10 @@ import {
   UrgencyBadge,
   PageHeader,
 } from "@/components/ui";
+import {
+  LineFindPanel,
+  type LineFindHit,
+} from "@/components/line-find-panel";
 
 type Detail = {
   item: {
@@ -151,6 +155,7 @@ export default function ItemDetail({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  const [highlightLineId, setHighlightLineId] = useState<string | null>(null);
 
   async function load() {
     const r = await fetch(`/api/detail?item_id=${itemId}`);
@@ -248,6 +253,25 @@ export default function ItemDetail({
   const canReview = ["pending_review", "needs_work", "auto_approved"].includes(
     item.status
   );
+
+  const sourceLines = useMemo(() => {
+    const raw = (item.source_text_redacted || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n");
+    const parts = raw.length === 0 ? [""] : raw.split("\n");
+    return parts.map((text, index) => ({
+      id: `L${String(index).padStart(3, "0")}`,
+      text,
+    }));
+  }, [item.source_text_redacted]);
+
+  function onSelectFindLine(hit: LineFindHit) {
+    setHighlightLineId(hit.id);
+    requestAnimationFrame(() => {
+      const el = document.getElementById(`src-${hit.id}`);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }
 
   return (
     <div>
@@ -570,11 +594,51 @@ export default function ItemDetail({
             </Card>
           )}
 
+          <LineFindPanel itemId={itemId} onSelectLine={onSelectFindLine} />
+
           <Card>
             <SectionTitle eyebrow="Source">Redacted text</SectionTitle>
-            <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-xl border border-[var(--line)] bg-[var(--paper-2)] p-3 font-mono text-[11px] leading-relaxed text-[var(--ink-2)]">
-              {item.source_text_redacted}
-            </pre>
+            <div className="max-h-72 overflow-auto rounded-xl border border-[var(--line)] bg-[var(--paper-2)] p-3 font-mono text-[11px] leading-relaxed text-[var(--ink-2)]">
+              {sourceLines.map((line) => {
+                const active = highlightLineId === line.id;
+                return (
+                  <div
+                    key={line.id}
+                    id={`src-${line.id}`}
+                    className={`flex gap-2 rounded px-1 py-0.5 ${
+                      active
+                        ? "bg-[var(--sage-soft)] ring-1 ring-[var(--sage)]/40"
+                        : ""
+                    }`}
+                  >
+                    <span
+                      className={`shrink-0 select-none ${
+                        active
+                          ? "font-semibold text-[var(--sage)]"
+                          : "text-[var(--ink-mute)]"
+                      }`}
+                    >
+                      {line.id}
+                    </span>
+                    <span className="min-w-0 whitespace-pre-wrap break-words">
+                      {line.text || " "}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            {highlightLineId && (
+              <p className="mt-2 text-[11px] text-[var(--ink-mute)]">
+                Highlighted from line-find ·{" "}
+                <button
+                  type="button"
+                  className="font-semibold text-[var(--sky)] hover:underline"
+                  onClick={() => setHighlightLineId(null)}
+                >
+                  clear
+                </button>
+              </p>
+            )}
           </Card>
 
           <Card>
