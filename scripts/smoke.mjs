@@ -111,6 +111,16 @@ async function main() {
     assert(String(json.jev?.model || "").includes("jev"), `model=${json.jev?.model}`);
     assert(json.decisions?.injectionNoul < 0.5, "injection noul should be low");
     assert(typeof json.decisions?.escalateNoul === "number", "escalate noul missing");
+    if (json.decisions?.injectionBand || json.triage?.anyUncertain != null) {
+      pass(
+        `triage bands injection=${json.decisions?.injectionBand} anyUncertain=${json.triage?.anyUncertain}`
+      );
+    }
+    if (json.triage?.taxonomy) {
+      pass(
+        `coarse taxonomy level=${json.triage.taxonomy.level} label=${json.triage.taxonomy.label}`
+      );
+    }
     pass(`triage ${json.jev?.model} ${ms}ms item=${json.itemId}`);
 
     const a = await req("POST", "/api/analyze", { itemId: json.itemId });
@@ -120,11 +130,38 @@ async function main() {
     assert((a.json.memo || "").length > 50, "memo too short");
     if (a.json.grounding) {
       assert(typeof a.json.grounding.overallSupported === "number", "grounding overall");
+      if (a.json.grounding.verdictCounts) {
+        assert(
+          typeof a.json.grounding.verdictCounts === "object",
+          "citation verdictCounts"
+        );
+        pass(
+          `citation verdicts ${JSON.stringify(a.json.grounding.verdictCounts)}`
+        );
+      }
       pass(
         `grounding supported=${a.json.grounding.overallSupported.toFixed(2)} unsupported=${a.json.grounding.unsupportedCount}`
       );
     } else {
       pass("grounding skipped (TypeSafe unavailable or no obligations)");
+    }
+    const hasDueIso = (a.json.obligations || []).some(
+      (o) => o.due_date_iso || o.needs_review != null
+    );
+    if (hasDueIso) {
+      pass(
+        `due_date_iso present on ${(a.json.obligations || []).filter((o) => o.due_date_iso).length} obligation(s)`
+      );
+    } else {
+      pass("due_date extract skipped or no ISO (ok if TypeSafe/date unavailable)");
+    }
+    if (a.json.cascade) {
+      pass(`sde cascade rung=${a.json.cascade.rung}`);
+    }
+    if (a.json.provenance?.judgments?.triage?.anyUncertain != null) {
+      pass(
+        `uncertain band anyUncertain=${a.json.provenance.judgments.triage.anyUncertain}`
+      );
     }
     pass(`analyze ${a.json.modelUsed} score=${a.json.confidence.score.toFixed(2)} ${a.ms}ms`);
 
@@ -237,6 +274,23 @@ async function main() {
     pass(`pii redaction ${json.guardrail.redactions.join(",")}`);
   } catch (e) {
     fail("pii redaction", e.message);
+  }
+
+  try {
+    const { status, json } = await req("POST", "/api/eval", { limit: 2 });
+    assert(status === 200, `eval HTTP ${status}`);
+    assert(json.runId, "eval runId");
+    assert(typeof json.summary?.uncertainRate === "number", "uncertainRate");
+    assert(Array.isArray(json.suggestions), "suggestions");
+    pass(
+      `eval run=${json.runId} uncertain=${(json.summary.uncertainRate * 100).toFixed(0)}% precision=${
+        json.summary.precisionAtCertain != null
+          ? (json.summary.precisionAtCertain * 100).toFixed(0) + "%"
+          : "n/a"
+      }`
+    );
+  } catch (e) {
+    fail("eval harness", e.message);
   }
 
   if (failures.length) {
