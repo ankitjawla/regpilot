@@ -33,7 +33,8 @@ export async function GET(req: NextRequest) {
     const judgments = parseJudgments(item.judgments);
 
     const obligations = await query(
-      `SELECT owner, action, due_date, source_quote FROM regpilot_obligations WHERE item_id=$1 ORDER BY id`,
+      `SELECT owner, action, due_date, source_quote, due_date_iso, date_confidence, needs_review
+       FROM regpilot_obligations WHERE item_id=$1 ORDER BY id`,
       [itemId]
     );
     const drafts = await query<{ memo_text: string; model_used: string }>(
@@ -59,6 +60,8 @@ export async function GET(req: NextRequest) {
           inventedClaims: judgments.grounding.inventedClaims,
           unsupportedCount: judgments.grounding.unsupportedCount,
           softFail: judgments.grounding.softFail,
+          needsReview: judgments.grounding.needsReview,
+          verdictCounts: judgments.grounding.verdictCounts,
           obligations: judgments.grounding.obligations,
           details: judgments.grounding.softFail
             ? "Grounding soft-fail"

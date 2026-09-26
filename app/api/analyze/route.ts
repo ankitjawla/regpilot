@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  extractObligations,
+  extractObligationsCascade,
   draftMemo,
   jevConfidence,
   gateDecision,
 } from "@/lib/jev";
-import { typesafeConfigured, typesafeGroundObligations } from "@/lib/typesafe";
 import { bigDeployment } from "@/lib/azure";
 import { query, audit } from "@/lib/db";
 import { rateLimited, clientIp } from "@/lib/ratelimit";
@@ -15,12 +14,15 @@ import {
   resolveMemoSystemPrompt,
 } from "@/lib/agents";
 import {
-  groundingJudgmentsFromResult,
   confidenceJudgmentsFromScore,
   mergeJudgments,
   parseJudgments,
   type ItemJudgments,
 } from "@/lib/provenance";
+import {
+  runPostDraftEnhancements,
+  applyConfidencePatch,
+} from "@/lib/enhance";
 
 export const maxDuration = 120;
 
@@ -36,6 +38,7 @@ export async function POST(req: NextRequest) {
 
     const items = await query<{
       id: number;
+      title: string;
       source_text_redacted: string;
       category: string;
       urgency: string;
@@ -60,23 +63,33 @@ export async function POST(req: NextRequest) {
       jurisdiction: item.jurisdiction,
       confidence: item.confidence,
       rationale: "",
-    } as Parameters<typeof extractObligations>[1];
+    } as Parameters<typeof extractObligationsCascade>[1];
 
     const agentCfg = await getAgentConfig().catch(() => DEFAULT_AGENT_CONFIG);
     let judgments: ItemJudgments = parseJudgments(item.judgments) || {};
 
-    const obligations = agentCfg.draft.enabled
-      ? await extractObligations(item.source_text_redacted, triage, {
+    const { obligations: rawObs, cascade } = agentCfg.draft.enabled
+      ? await extractObligationsCascade(item.source_text_redacted, triage, {
           systemPrompt: agentCfg.draft.obligationSystemPrompt,
+          cascadeEnabled: agentCfg.draft.sdeCascadeEnabled,
+          fireThreshold: agentCfg.draft.sdeFireThreshold,
         })
-      : [];
-    await audit(itemId, bigDeployment(), "obligations.extract", `${obligations.length} obligation(s) extracted`);
+      : {
+          obligations: [],
+          cascade: { rung: "skipped" as const, verified: false },
+        };
+    await audit(
+      itemId,
+      cascade.model || bigDeployment(),
+      "obligations.extract",
+      `${rawObs.length} obligation(s) · cascade rung=${cascade.rung}`
+    );
 
     const { memo, modelUsed } = agentCfg.draft.enabled
       ? await draftMemo(
           item.source_text_redacted,
           triage,
-          obligations,
+          rawObs,
           item.fast_path,
           { systemPrompt: resolveMemoSystemPrompt(agentCfg) }
         )
@@ -84,78 +97,91 @@ export async function POST(req: NextRequest) {
           memo: "_Draft agent disabled in Settings / Agents._",
           modelUsed: "disabled",
         };
-    await audit(itemId, modelUsed, "memo.draft", item.fast_path ? "fast path (small model)" : "full analysis (large model)");
-
-    const confidence = await jevConfidence(
-      memo,
-      obligations,
-      triage,
-      req.nextUrl.origin
+    await audit(
+      itemId,
+      modelUsed,
+      "memo.draft",
+      item.fast_path ? "fast path (small model)" : "full analysis (large model)"
     );
 
-    let grounding = null;
-    if (
-      agentCfg.grounding.enabled &&
-      typesafeConfigured() &&
-      obligations.length > 0
-    ) {
-      try {
-        const g = await typesafeGroundObligations({
-          source: item.source_text_redacted,
-          obligations,
-          memo,
-        });
-        const softFail =
-          g.overallSupported < agentCfg.grounding.supportThreshold ||
-          g.inventedClaims > agentCfg.grounding.inventedThreshold;
-        judgments = mergeJudgments(judgments, {
-          grounding: groundingJudgmentsFromResult(g, softFail),
-        });
-        grounding = {
-          model: g.model,
-          overallSupported: g.overallSupported,
-          inventedClaims: g.inventedClaims,
-          unsupportedCount: g.unsupportedCount,
-          obligations: g.obligations,
-          softFail,
-          latencyMs: g.latencyMs,
-        };
-        await audit(
-          itemId,
-          g.model,
-          "grounding.check",
-          JSON.stringify({
-            model: g.model,
-            overallSupported: g.overallSupported,
-            inventedClaims: g.inventedClaims,
-            unsupportedCount: g.unsupportedCount,
-            softFail,
-            details: `${g.unsupportedCount} unsupported obligation(s); inventedClaims noul ${g.inventedClaims.toFixed(2)}`,
-          })
-        );
-        if (softFail) {
-          confidence.score = Math.min(confidence.score, 0.49);
-          confidence.reasons.push(
-            `Grounding soft-fail (supported ${g.overallSupported.toFixed(2)}, invented ${g.inventedClaims.toFixed(2)})`
-          );
-        } else if (g.unsupportedCount > 0) {
-          confidence.score = Math.min(confidence.score, 0.75);
-          confidence.reasons.push(
-            `${g.unsupportedCount} obligation(s) weakly supported`
-          );
-        }
-      } catch (e) {
-        console.error(
-          "[analyze] grounding unavailable:",
-          (e as Error).message?.slice(0, 120)
-        );
-      }
+    let confidence = await jevConfidence(
+      memo,
+      rawObs,
+      triage,
+      req.nextUrl.origin,
+      agentCfg.confidence
+    );
+
+    const enhanced = await runPostDraftEnhancements({
+      source: item.source_text_redacted,
+      title: item.title,
+      memo,
+      obligations: rawObs,
+      triage,
+      agentCfg,
+      cascade,
+      existingJudgments: judgments,
+    });
+    judgments = mergeJudgments(judgments, enhanced.judgments);
+    confidence = applyConfidencePatch(confidence, enhanced.confidencePatch);
+    const obligations = enhanced.obligations;
+    const grounding = enhanced.grounding;
+
+    if (grounding) {
+      await audit(
+        itemId,
+        grounding.model,
+        "grounding.check",
+        JSON.stringify({
+          model: grounding.model,
+          overallSupported: grounding.overallSupported,
+          inventedClaims: grounding.inventedClaims,
+          unsupportedCount: grounding.unsupportedCount,
+          softFail: grounding.softFail,
+          verdictCounts: grounding.verdictCounts,
+          needsReview: grounding.needsReview,
+        })
+      );
+    }
+    if (judgments.hazard) {
+      await audit(
+        itemId,
+        judgments.hazard.model,
+        "hazard.screen",
+        JSON.stringify(judgments.hazard)
+      );
+    }
+    if (judgments.playbook) {
+      await audit(
+        itemId,
+        judgments.playbook.model,
+        "playbook.coverage",
+        JSON.stringify({
+          playbookId: judgments.playbook.playbookId,
+          meanCoverage: judgments.playbook.meanCoverage,
+          missing: judgments.playbook.missingSteps,
+        })
+      );
+    }
+    if (judgments.cascade) {
+      await audit(
+        itemId,
+        judgments.cascade.model || "cascade",
+        "cascade.rung",
+        JSON.stringify(judgments.cascade)
+      );
     }
 
     judgments = mergeJudgments(judgments, {
       confidence: confidenceJudgmentsFromScore({
         ...confidence,
         model: confidence.model,
+        weights: {
+          weightGrounded: agentCfg.confidence.weightGrounded,
+          weightComplete: agentCfg.confidence.weightComplete,
+          weightActionable: agentCfg.confidence.weightActionable,
+          weightOverall: agentCfg.confidence.weightOverall,
+        },
       }),
     });
 
@@ -169,15 +195,30 @@ export async function POST(req: NextRequest) {
     const gate = gateDecision(confidence.score, {
       autoApproveAbove: agentCfg.gate.autoApproveAbove,
       humanConfirmAbove: agentCfg.gate.humanConfirmAbove,
+      forceConfirmOnUncertain: agentCfg.gate.forceConfirmOnUncertain,
+      anyUncertain: enhanced.confidencePatch.anyUncertain,
+      dueDateNeedsReview: enhanced.confidencePatch.dueDateNeedsReview,
+      dueDateForceConfirm: agentCfg.draft.dueDateForceConfirm,
+      hazardDisposition: enhanced.confidencePatch.hazardDisposition,
+      groundingNeedsReview: enhanced.confidencePatch.groundingNeedsReview,
     });
     await audit(itemId, "gate", `gate.${gate.status}`, gate.label);
 
     await query(`DELETE FROM regpilot_obligations WHERE item_id=$1`, [itemId]);
     for (const o of obligations) {
       await query(
-        `INSERT INTO regpilot_obligations(item_id, owner, action, due_date, source_quote)
-         VALUES ($1,$2,$3,$4,$5)`,
-        [itemId, o.owner, o.action, o.due_date, o.source_quote]
+        `INSERT INTO regpilot_obligations(item_id, owner, action, due_date, source_quote, due_date_iso, date_confidence, needs_review)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [
+          itemId,
+          o.owner,
+          o.action,
+          o.due_date,
+          o.source_quote,
+          o.due_date_iso ?? null,
+          o.date_confidence ?? null,
+          o.needs_review ?? false,
+        ]
       );
     }
     await query(`DELETE FROM regpilot_drafts WHERE item_id=$1`, [itemId]);
@@ -207,6 +248,7 @@ export async function POST(req: NextRequest) {
         preset: agentCfg.preset,
         hasGrounding: Boolean(judgments.grounding),
         hasConfidence: Boolean(judgments.confidence),
+        hasHazard: Boolean(judgments.hazard),
       })
     );
 
@@ -217,6 +259,7 @@ export async function POST(req: NextRequest) {
       modelUsed,
       confidence,
       grounding,
+      cascade,
       gate,
       status: gate.status,
       provenance: {

@@ -20,7 +20,10 @@ const AGENT_KEYS: AgentKey[] = [
   "triage",
   "router",
   "draft",
+  "dedupe",
   "grounding",
+  "playbook",
+  "hazard",
   "confidence",
   "gate",
 ];
@@ -315,26 +318,110 @@ export default function AgentsPage() {
                             }
                             hint="Routine items only escalate when confidence is below this."
                           />
+                          <Threshold
+                            label="Noul uncertain band low"
+                            value={agent.noulUncertainLow}
+                            onChange={(n) =>
+                              patchSelected({ noulUncertainLow: n })
+                            }
+                            hint="Nouls in [low, high] → explicit uncertain."
+                          />
+                          <Threshold
+                            label="Noul uncertain band high"
+                            value={agent.noulUncertainHigh}
+                            onChange={(n) =>
+                              patchSelected({ noulUncertainHigh: n })
+                            }
+                          />
+                          <Threshold
+                            label="Choice min confidence"
+                            value={agent.choiceMinConfidence}
+                            onChange={(n) =>
+                              patchSelected({ choiceMinConfidence: n })
+                            }
+                            hint="Below this → uncertain choice band."
+                          />
+                          <Threshold
+                            label="Coarse taxonomy cutoff"
+                            value={agent.coarseTaxonomyCutoff}
+                            onChange={(n) =>
+                              patchSelected({ coarseTaxonomyCutoff: n })
+                            }
+                            hint="Fine category confidence below this → report coarse parent."
+                          />
+                          <label className="flex items-center gap-2 text-sm font-semibold">
+                            <input
+                              type="checkbox"
+                              checked={agent.beamClassifyEnabled}
+                              onChange={(e) =>
+                                patchSelected({
+                                  beamClassifyEnabled: e.target.checked,
+                                })
+                              }
+                            />
+                            Hierarchical beam classify
+                          </label>
                         </>
                       )}
-                    {selected === "router" && "routineCategories" in agent && (
-                      <label className="block">
-                        <span className="mb-1 block text-xs font-semibold text-[var(--ink-mute)]">
-                          Routine categories (comma-separated)
-                        </span>
-                        <input
-                          value={agent.routineCategories.join(", ")}
-                          onChange={(e) =>
-                            patchSelected({
-                              routineCategories: e.target.value
-                                .split(",")
-                                .map((s) => s.trim())
-                                .filter(Boolean),
-                            })
+                    {selected === "draft" && "sdeCascadeEnabled" in agent && (
+                      <>
+                        <label className="flex items-center gap-2 text-sm font-semibold">
+                          <input
+                            type="checkbox"
+                            checked={agent.sdeCascadeEnabled}
+                            onChange={(e) =>
+                              patchSelected({
+                                sdeCascadeEnabled: e.target.checked,
+                              })
+                            }
+                          />
+                          SDE cascade (small → verify → big)
+                        </label>
+                        <Threshold
+                          label="Cascade fire threshold"
+                          value={agent.sdeFireThreshold}
+                          onChange={(n) =>
+                            patchSelected({ sdeFireThreshold: n })
                           }
-                          className="w-full rounded-xl border border-[var(--line)] bg-[var(--paper-2)] px-3 py-2.5 text-sm outline-none ring-[var(--sage)] focus:ring-2"
                         />
-                      </label>
+                        <label className="flex items-center gap-2 text-sm font-semibold">
+                          <input
+                            type="checkbox"
+                            checked={agent.dueDateExtractEnabled}
+                            onChange={(e) =>
+                              patchSelected({
+                                dueDateExtractEnabled: e.target.checked,
+                              })
+                            }
+                          />
+                          Typed due-date extraction
+                        </label>
+                        <Threshold
+                          label="Due-date review below"
+                          value={agent.dueDateReviewBelow}
+                          onChange={(n) =>
+                            patchSelected({ dueDateReviewBelow: n })
+                          }
+                        />
+                        <label className="flex items-center gap-2 text-sm font-semibold">
+                          <input
+                            type="checkbox"
+                            checked={agent.dueDateForceConfirm}
+                            onChange={(e) =>
+                              patchSelected({
+                                dueDateForceConfirm: e.target.checked,
+                              })
+                            }
+                          />
+                          Force human confirm on due-date review
+                        </label>
+                        <Link
+                          href="/settings"
+                          className="inline-block text-xs font-semibold text-[var(--sky)] hover:underline"
+                        >
+                          Open draft prompts →
+                        </Link>
+                      </>
                     )}
                     {selected === "grounding" && "supportThreshold" in agent && (
                       <>
@@ -352,7 +439,95 @@ export default function AgentsPage() {
                             patchSelected({ inventedThreshold: n })
                           }
                         />
+                        <Threshold
+                          label="Citation auto-accept confidence"
+                          value={agent.citationAutoAccept}
+                          onChange={(n) =>
+                            patchSelected({ citationAutoAccept: n })
+                          }
+                          hint="Below this → needs human confirm on citation verdict."
+                        />
                       </>
+                    )}
+                    {selected === "confidence" &&
+                      "weightGrounded" in agent && (
+                        <>
+                          <Threshold
+                            label="Weight · grounded"
+                            value={agent.weightGrounded}
+                            onChange={(n) =>
+                              patchSelected({ weightGrounded: n })
+                            }
+                          />
+                          <Threshold
+                            label="Weight · complete"
+                            value={agent.weightComplete}
+                            onChange={(n) =>
+                              patchSelected({ weightComplete: n })
+                            }
+                          />
+                          <Threshold
+                            label="Weight · actionable"
+                            value={agent.weightActionable}
+                            onChange={(n) =>
+                              patchSelected({ weightActionable: n })
+                            }
+                          />
+                          <Threshold
+                            label="Weight · overall score"
+                            value={agent.weightOverall}
+                            onChange={(n) =>
+                              patchSelected({ weightOverall: n })
+                            }
+                          />
+                          <p className="text-xs text-[var(--ink-mute)]">
+                            Weights renormalize at score time. Use Recompute on
+                            an item detail page to apply new weights without
+                            re-inference.
+                          </p>
+                        </>
+                      )}
+                    {selected === "hazard" && "blockSeverityAbove" in agent && (
+                      <>
+                        <Threshold
+                          label="Block severity above (0–4)"
+                          value={agent.blockSeverityAbove / 4}
+                          onChange={(n) =>
+                            patchSelected({ blockSeverityAbove: n * 4 })
+                          }
+                          hint={`Severity ≥ ${agent.blockSeverityAbove.toFixed(2)} blocks.`}
+                        />
+                        <Threshold
+                          label="Review severity above (0–4)"
+                          value={agent.reviewSeverityAbove / 4}
+                          onChange={(n) =>
+                            patchSelected({ reviewSeverityAbove: n * 4 })
+                          }
+                        />
+                        <Threshold
+                          label="Hazard noul block"
+                          value={agent.hazardNoulBlock}
+                          onChange={(n) =>
+                            patchSelected({ hazardNoulBlock: n })
+                          }
+                        />
+                      </>
+                    )}
+                    {selected === "playbook" && "coveredThreshold" in agent && (
+                      <Threshold
+                        label="Step covered noul threshold"
+                        value={agent.coveredThreshold}
+                        onChange={(n) =>
+                          patchSelected({ coveredThreshold: n })
+                        }
+                      />
+                    )}
+                    {selected === "dedupe" && (
+                      <p className="text-sm text-[var(--ink-mute)]">
+                        When enabled, pairs of obligations are scored
+                        same/related/different for the Review curator merge
+                        action.
+                      </p>
                     )}
                     {selected === "gate" && "autoApproveAbove" in agent && (
                       <>
@@ -371,27 +546,52 @@ export default function AgentsPage() {
                           }
                           hint="Below this → needs_work; between this and auto-approve → pending_review."
                         />
+                        <label className="flex items-center gap-2 text-sm font-semibold">
+                          <input
+                            type="checkbox"
+                            checked={agent.forceConfirmOnUncertain}
+                            onChange={(e) =>
+                              patchSelected({
+                                forceConfirmOnUncertain: e.target.checked,
+                              })
+                            }
+                          />
+                          Force confirm on uncertain bands
+                        </label>
                       </>
                     )}
-                    {selected === "draft" && "obligationSystemPrompt" in agent && (
+                    {selected === "router" && "routineCategories" in agent && (
                       <>
-                        <p className="text-sm text-[var(--ink-mute)]">
-                          Edit full Azure system prompts under Settings. Quick
-                          toggle and labels live here.
-                        </p>
-                        <Link
-                          href="/settings"
-                          className="inline-block text-xs font-semibold text-[var(--sky)] hover:underline"
-                        >
-                          Open draft prompts →
-                        </Link>
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-semibold text-[var(--ink-mute)]">
+                            Routine categories (comma-separated)
+                          </span>
+                          <input
+                            value={agent.routineCategories.join(", ")}
+                            onChange={(e) =>
+                              patchSelected({
+                                routineCategories: e.target.value
+                                  .split(",")
+                                  .map((s) => s.trim())
+                                  .filter(Boolean),
+                              })
+                            }
+                            className="w-full rounded-xl border border-[var(--line)] bg-[var(--paper-2)] px-3 py-2.5 text-sm outline-none ring-[var(--sage)] focus:ring-2"
+                          />
+                        </label>
+                        <label className="flex items-center gap-2 text-sm font-semibold">
+                          <input
+                            type="checkbox"
+                            checked={agent.preferCoarseForRouting}
+                            onChange={(e) =>
+                              patchSelected({
+                                preferCoarseForRouting: e.target.checked,
+                              })
+                            }
+                          />
+                          Prefer coarse taxonomy when unsure
+                        </label>
                       </>
-                    )}
-                    {selected === "confidence" && (
-                      <p className="text-sm text-[var(--ink-mute)]">
-                        Confidence uses TypeSafe nouls + score when configured.
-                        Soft-caps come from the grounding agent thresholds.
-                      </p>
                     )}
                   </div>
                 </Card>

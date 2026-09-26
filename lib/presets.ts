@@ -121,6 +121,9 @@ export function applyPreset(
   if (p.grounding) next.grounding = { ...next.grounding, ...p.grounding };
   if (p.confidence) next.confidence = { ...next.confidence, ...p.confidence };
   if (p.gate) next.gate = { ...next.gate, ...p.gate };
+  if (p.hazard) next.hazard = { ...next.hazard, ...p.hazard };
+  if (p.playbook) next.playbook = { ...next.playbook, ...p.playbook };
+  if (p.dedupe) next.dedupe = { ...next.dedupe, ...p.dedupe };
   if (p.console) next.console = { ...next.console, ...p.console };
   next.preset = preset;
   return next;

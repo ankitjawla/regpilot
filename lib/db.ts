@@ -40,7 +40,10 @@ CREATE TABLE IF NOT EXISTS regpilot_obligations(
   owner TEXT,
   action TEXT,
   due_date TEXT,
-  source_quote TEXT
+  source_quote TEXT,
+  due_date_iso TEXT,
+  date_confidence DOUBLE PRECISION,
+  needs_review BOOLEAN DEFAULT FALSE
 );
 CREATE TABLE IF NOT EXISTS regpilot_drafts(
   id SERIAL PRIMARY KEY,
@@ -71,13 +74,24 @@ CREATE TABLE IF NOT EXISTS regpilot_custom_samples(
   text TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE TABLE IF NOT EXISTS regpilot_eval_runs(
+  id SERIAL PRIMARY KEY,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  sample_count INTEGER NOT NULL DEFAULT 0,
+  summary JSONB NOT NULL,
+  suggestions JSONB,
+  policy_version INTEGER
+);
 `;
 
-/** Idempotent column adds for examiner provenance (policy + judgments ledger). */
+/** Idempotent column adds for examiner provenance + cookbook fields. */
 const SCHEMA_MIGRATIONS = `
 ALTER TABLE regpilot_items ADD COLUMN IF NOT EXISTS policy_version INTEGER;
 ALTER TABLE regpilot_items ADD COLUMN IF NOT EXISTS preset TEXT;
 ALTER TABLE regpilot_items ADD COLUMN IF NOT EXISTS judgments JSONB;
+ALTER TABLE regpilot_obligations ADD COLUMN IF NOT EXISTS due_date_iso TEXT;
+ALTER TABLE regpilot_obligations ADD COLUMN IF NOT EXISTS date_confidence DOUBLE PRECISION;
+ALTER TABLE regpilot_obligations ADD COLUMN IF NOT EXISTS needs_review BOOLEAN DEFAULT FALSE;
 `;
 
 function ensureSchema(): Promise<void> {

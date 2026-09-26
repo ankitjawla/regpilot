@@ -31,6 +31,9 @@ type Detail = {
     action: string;
     due_date: string;
     source_quote: string;
+    due_date_iso?: string | null;
+    date_confidence?: number | null;
+    needs_review?: boolean | null;
   }[];
   memo: string;
   modelUsed: string;
@@ -41,6 +44,8 @@ type Detail = {
     inventedClaims?: number;
     unsupportedCount?: number;
     softFail?: boolean;
+    needsReview?: boolean;
+    verdictCounts?: Record<string, number>;
     details?: string;
     obligations?: {
       index: number;
@@ -48,6 +53,8 @@ type Detail = {
       action: string;
       supportedNoul: number;
       supported: boolean;
+      verdict?: string;
+      needsHumanConfirm?: boolean;
     }[];
   } | null;
   provenance?: {
@@ -57,25 +64,65 @@ type Detail = {
       triage?: {
         model?: string;
         injectionNoul?: number;
+        injectionBand?: string;
         escalateNoul?: number;
-        category?: { choice: string; confidence: number };
-        urgency?: { choice: string; confidence: number };
-        jurisdiction?: { choice: string; confidence: number };
+        escalateBand?: string;
+        anyUncertain?: boolean;
+        category?: { choice: string; confidence: number; band?: string };
+        urgency?: { choice: string; confidence: number; band?: string };
+        jurisdiction?: { choice: string; confidence: number; band?: string };
+        taxonomy?: {
+          fine: string;
+          coarse: string;
+          level: string;
+          label: string;
+        };
+        beam?: {
+          primary?: { path: string[]; score: number } | null;
+          paths?: { path: string[]; score: number }[];
+        };
       };
       grounding?: {
         overallSupported: number;
         inventedClaims: number;
         unsupportedCount: number;
         softFail?: boolean;
+        needsReview?: boolean;
+        verdictCounts?: Record<string, number>;
         obligations?: {
           index: number;
           owner: string;
           action: string;
           supportedNoul: number;
           supported: boolean;
+          verdict?: string;
         }[];
       };
-      confidence?: { score: number; reasons: string[]; model?: string };
+      confidence?: {
+        score: number;
+        reasons: string[];
+        model?: string;
+        groundedNoul?: number;
+        completeNoul?: number;
+        actionableNoul?: number;
+      };
+      hazard?: {
+        disposition: string;
+        severityScore: number;
+        injectionNoul: number;
+        piiLeakNoul: number;
+      };
+      playbook?: {
+        playbookId: string;
+        meanCoverage: number;
+        missingSteps: string[];
+        steps: { step: string; covered: boolean; coveredNoul: number }[];
+      };
+      cascade?: { rung: string; verified: boolean; anyFire?: boolean };
+      dueDates?: { anyNeedsReview: boolean };
+      dedupe?: {
+        mergeSuggestions: { aIndex: number; bIndex: number }[];
+      };
     } | null;
   } | null;
   playbook?: {
@@ -132,6 +179,25 @@ export default function ItemDetail({
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Re-analyze failed");
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function recomputeConfidence() {
+    setBusy(true);
+    setError("");
+    try {
+      const r = await fetch("/api/confidence/recompute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Recompute failed");
       await load();
     } catch (e) {
       setError((e as Error).message);
@@ -213,6 +279,15 @@ export default function ItemDetail({
                 {busy ? "Working…" : "Re-analyze"}
               </button>
             )}
+            {data.provenance?.judgments?.confidence?.groundedNoul != null && (
+              <button
+                onClick={recomputeConfidence}
+                disabled={busy}
+                className="rounded-xl border border-[var(--line)] bg-white px-4 py-2.5 text-sm font-semibold hover:bg-[var(--paper-2)] disabled:opacity-50"
+              >
+                Recompute confidence
+              </button>
+            )}
           </div>
         }
       />
@@ -240,6 +315,32 @@ export default function ItemDetail({
         {data.grounding?.softFail && (
           <Badge color="amber">grounding soft-fail</Badge>
         )}
+        {data.provenance?.judgments?.triage?.anyUncertain && (
+          <Badge color="amber">uncertain band</Badge>
+        )}
+        {data.provenance?.judgments?.hazard?.disposition &&
+          data.provenance.judgments.hazard.disposition !== "pass" && (
+            <Badge
+              color={
+                data.provenance.judgments.hazard.disposition === "block"
+                  ? "red"
+                  : "amber"
+              }
+            >
+              hazard · {data.provenance.judgments.hazard.disposition}
+            </Badge>
+          )}
+        {data.provenance?.judgments?.cascade?.rung && (
+          <Badge color="slate">
+            cascade · {data.provenance.judgments.cascade.rung}
+          </Badge>
+        )}
+        {data.provenance?.judgments?.triage?.taxonomy && (
+          <Badge color="blue">
+            {data.provenance.judgments.triage.taxonomy.level}:{" "}
+            {data.provenance.judgments.triage.taxonomy.label}
+          </Badge>
+        )}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-12">
@@ -260,8 +361,18 @@ export default function ItemDetail({
                     <div className="font-semibold">{o.owner}</div>
                     <div className="mt-0.5">{o.action}</div>
                     <div className="mt-1 text-xs text-[var(--ink-mute)]">
-                      Due {o.due_date} · “{o.source_quote}”
+                      Due {o.due_date}
+                      {o.due_date_iso ? ` · ISO ${o.due_date_iso}` : ""}
+                      {o.date_confidence != null
+                        ? ` · date conf ${o.date_confidence.toFixed(2)}`
+                        : ""}{" "}
+                      · “{o.source_quote}”
                     </div>
+                    {o.needs_review && (
+                      <div className="mt-1">
+                        <Badge color="amber">due date needs review</Badge>
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -286,11 +397,32 @@ export default function ItemDetail({
               <SectionTitle eyebrow={data.playbook.framework}>
                 {data.playbook.title}
               </SectionTitle>
-              <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm text-[var(--ink-2)]">
-                {data.playbook.steps.map((step, i) => (
-                  <li key={i}>{step}</li>
-                ))}
-              </ol>
+              {data.provenance?.judgments?.playbook ? (
+                <ul className="mt-2 space-y-1.5 text-sm text-[var(--ink-2)]">
+                  {data.provenance.judgments.playbook.steps.map((s, i) => (
+                    <li key={i} className="flex items-start gap-2">
+                      <Badge color={s.covered ? "green" : "amber"}>
+                        {s.covered ? "covered" : "gap"}
+                      </Badge>
+                      <span>{s.step}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm text-[var(--ink-2)]">
+                  {data.playbook.steps.map((step, i) => (
+                    <li key={i}>{step}</li>
+                  ))}
+                </ol>
+              )}
+              {data.provenance?.judgments?.playbook?.missingSteps?.length ? (
+                <p className="mt-2 text-xs text-[var(--amber)]">
+                  Soft-suggest:{" "}
+                  {data.provenance.judgments.playbook.missingSteps
+                    .slice(0, 3)
+                    .join("; ")}
+                </p>
+              ) : null}
             </Card>
           )}
 

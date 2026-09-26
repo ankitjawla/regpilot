@@ -17,10 +17,15 @@ import {
   typesafeConfigured,
   typesafeTriage,
   typesafeConfidence,
+  typesafeVerifyExtractionFields,
   type TypesafeTriageAnswers,
 } from "./typesafe";
 import { getAgentConfig } from "./agent-store";
-import { DEFAULT_AGENT_CONFIG } from "./agents";
+import {
+  DEFAULT_AGENT_CONFIG,
+  compositeConfidenceScore,
+  type AgentConfig,
+} from "./agents";
 
 export type Triage = {
   category:
@@ -56,11 +61,28 @@ export type Obligation = {
   action: string;
   due_date: string;
   source_quote: string;
+  due_date_iso?: string | null;
+  date_confidence?: number | null;
+  needs_review?: boolean;
+  date_note?: string;
 };
 
 export type ConfidenceScore = {
   score: number;
   reasons: string[];
+  groundedNoul?: number;
+  completeNoul?: number;
+  actionableNoul?: number;
+  overallScore?: number;
+  overallConfidence?: number;
+  weights?: AgentConfig["confidence"];
+};
+
+export type CascadeMeta = {
+  rung: "small" | "big" | "skipped";
+  verified: boolean;
+  anyFire?: boolean;
+  model?: string;
 };
 
 const MAX_INPUT = 6000;
@@ -454,20 +476,18 @@ export function routeDecision(
 }
 
 // -------------------------------------------------------------- obligations
-export async function extractObligations(
+async function extractObligationsOnDeployment(
   redactedText: string,
   triage: Triage,
-  opts?: { systemPrompt?: string }
+  deployment: string,
+  systemPrompt: string
 ): Promise<Obligation[]> {
-  const system =
-    opts?.systemPrompt?.trim() ||
-    DEFAULT_AGENT_CONFIG.draft.obligationSystemPrompt;
   const out = await azureChat({
-    deployment: bigDeployment(),
+    deployment,
     maxTokens: 1500,
     json: true,
     messages: [
-      { role: "system", content: system },
+      { role: "system", content: systemPrompt },
       {
         role: "user",
         content:
@@ -478,6 +498,122 @@ export async function extractObligations(
   });
   const parsed = parseJson<{ obligations?: Obligation[] }>(out);
   return Array.isArray(parsed.obligations) ? parsed.obligations : [];
+}
+
+export async function extractObligations(
+  redactedText: string,
+  triage: Triage,
+  opts?: { systemPrompt?: string }
+): Promise<Obligation[]> {
+  const system =
+    opts?.systemPrompt?.trim() ||
+    DEFAULT_AGENT_CONFIG.draft.obligationSystemPrompt;
+  return extractObligationsOnDeployment(
+    redactedText,
+    triage,
+    bigDeployment(),
+    system
+  );
+}
+
+/**
+ * SDE cascade: Azure small extract → TypeSafe field-wrongness nouls →
+ * escalate to Azure big only if verifier fires.
+ */
+export async function extractObligationsCascade(
+  redactedText: string,
+  triage: Triage,
+  opts?: {
+    systemPrompt?: string;
+    cascadeEnabled?: boolean;
+    fireThreshold?: number;
+  }
+): Promise<{ obligations: Obligation[]; cascade: CascadeMeta }> {
+  const system =
+    opts?.systemPrompt?.trim() ||
+    DEFAULT_AGENT_CONFIG.draft.obligationSystemPrompt;
+  const cascadeEnabled = opts?.cascadeEnabled !== false;
+  const fireThreshold =
+    opts?.fireThreshold ?? DEFAULT_AGENT_CONFIG.draft.sdeFireThreshold;
+
+  if (!cascadeEnabled || !typesafeConfigured()) {
+    const obligations = await extractObligationsOnDeployment(
+      redactedText,
+      triage,
+      bigDeployment(),
+      system
+    );
+    return {
+      obligations,
+      cascade: { rung: "big", verified: false, model: bigDeployment() },
+    };
+  }
+
+  try {
+    const smallObs = await extractObligationsOnDeployment(
+      redactedText,
+      triage,
+      smallDeployment(),
+      system
+    );
+    if (smallObs.length === 0) {
+      return {
+        obligations: smallObs,
+        cascade: {
+          rung: "small",
+          verified: true,
+          anyFire: false,
+          model: smallDeployment(),
+        },
+      };
+    }
+    const verify = await typesafeVerifyExtractionFields({
+      source: redactedText,
+      obligations: smallObs,
+      fireThreshold,
+    });
+    if (!verify.anyFire) {
+      return {
+        obligations: smallObs,
+        cascade: {
+          rung: "small",
+          verified: true,
+          anyFire: false,
+          model: verify.model,
+        },
+      };
+    }
+    const bigObs = await extractObligationsOnDeployment(
+      redactedText,
+      triage,
+      bigDeployment(),
+      system
+    );
+    return {
+      obligations: bigObs,
+      cascade: {
+        rung: "big",
+        verified: true,
+        anyFire: true,
+        model: bigDeployment(),
+      },
+    };
+  } catch (e) {
+    console.error(
+      "[jev] SDE cascade unavailable:",
+      (e as Error).message?.slice(0, 120)
+    );
+    const obligations = await extractObligationsOnDeployment(
+      redactedText,
+      triage,
+      bigDeployment(),
+      system
+    );
+    return {
+      obligations,
+      cascade: { rung: "big", verified: false, model: bigDeployment() },
+    };
+  }
 }
 
 // -------------------------------------------------------------------- memo
@@ -531,8 +667,10 @@ export async function jevConfidence(
   memo: string,
   obligations: Obligation[],
   triage: Triage,
-  origin?: string
+  origin?: string,
+  weightCfg?: AgentConfig["confidence"]
 ): Promise<ConfidenceScore & { model: string }> {
+  const weights = weightCfg ?? DEFAULT_AGENT_CONFIG.confidence;
   // PRIMARY: TypeSafe System One — composite nouls + overall score.
   if (typesafeConfigured()) {
     try {
@@ -541,11 +679,14 @@ export async function jevConfidence(
         obligationsJson: JSON.stringify(obligations),
         triageSummary: `${triage.category} / ${triage.jurisdiction} / ${triage.urgency} (triage conf ${triage.confidence.toFixed(2)})`,
       });
-      // Score levels 0..4 → normalize to 0..1; blend with noul average.
       const overall01 = Math.min(1, Math.max(0, c.overall.score / 4));
-      const noulAvg =
-        (c.grounded.noul + c.complete.noul + c.actionable.noul) / 3;
-      const score = Math.min(1, Math.max(0, 0.55 * overall01 + 0.45 * noulAvg));
+      const score = compositeConfidenceScore({
+        grounded: c.grounded.noul,
+        complete: c.complete.noul,
+        actionable: c.actionable.noul,
+        overall01,
+        weights,
+      });
       const reasons: string[] = [
         `Overall quality score ${c.overall.score.toFixed(2)}/4 (conf ${c.overall.confidence.toFixed(2)})`,
         `Grounded noul ${c.grounded.noul.toFixed(2)}`,
@@ -555,7 +696,17 @@ export async function jevConfidence(
       if (c.grounded.noul < 0.55) reasons.push("Weak factual grounding");
       if (c.complete.noul < 0.55) reasons.push("Obligations coverage incomplete");
       if (c.actionable.noul < 0.55) reasons.push("Recommendations not actionable enough");
-      return { score, reasons, model: c.model };
+      return {
+        score,
+        reasons,
+        model: c.model,
+        groundedNoul: c.grounded.noul,
+        completeNoul: c.complete.noul,
+        actionableNoul: c.actionable.noul,
+        overallScore: c.overall.score,
+        overallConfidence: c.overall.confidence,
+        weights,
+      };
     } catch (e) {
       console.error(
         "[jev] TypeSafe confidence unavailable:",
@@ -630,27 +781,89 @@ export type GateStatus =
 
 export function gateDecision(
   score: number,
-  opts?: { autoApproveAbove?: number; humanConfirmAbove?: number }
+  opts?: {
+    autoApproveAbove?: number;
+    humanConfirmAbove?: number;
+    forceConfirmOnUncertain?: boolean;
+    anyUncertain?: boolean;
+    dueDateNeedsReview?: boolean;
+    dueDateForceConfirm?: boolean;
+    hazardDisposition?: "pass" | "review" | "block";
+    groundingNeedsReview?: boolean;
+  }
 ): {
-  status: "auto_approved" | "pending_review" | "needs_work";
+  status: "auto_approved" | "pending_review" | "needs_work" | "blocked";
   label: string;
 } {
   const autoAbove =
     opts?.autoApproveAbove ?? DEFAULT_AGENT_CONFIG.gate.autoApproveAbove;
   const humanAbove =
     opts?.humanConfirmAbove ?? DEFAULT_AGENT_CONFIG.gate.humanConfirmAbove;
-  if (score > autoAbove)
+  const forceUncertain =
+    opts?.forceConfirmOnUncertain ??
+    DEFAULT_AGENT_CONFIG.gate.forceConfirmOnUncertain;
+
+  if (opts?.hazardDisposition === "block") {
+    return {
+      status: "blocked",
+      label: "Blocked — outbound memo hazard screen failed",
+    };
+  }
+
+  const forceConfirm =
+    (forceUncertain && opts?.anyUncertain) ||
+    (opts?.dueDateForceConfirm && opts?.dueDateNeedsReview) ||
+    opts?.hazardDisposition === "review" ||
+    opts?.groundingNeedsReview;
+
+  if (score > autoAbove && !forceConfirm)
     return {
       status: "auto_approved",
       label: `Auto-approved — confidence above ${autoAbove.toFixed(2)}`,
     };
-  if (score >= humanAbove)
+  if (forceConfirm && score > autoAbove) {
     return {
       status: "pending_review",
-      label: `Needs human confirm — confidence ${humanAbove.toFixed(2)}–${autoAbove.toFixed(2)}`,
+      label:
+        "Needs human confirm — uncertain band / due-date / citation / hazard override",
+    };
+  }
+  if (score >= humanAbove || forceConfirm)
+    return {
+      status: "pending_review",
+      label: forceConfirm
+        ? "Needs human confirm — uncertain / citation / due-date / hazard"
+        : `Needs human confirm — confidence ${humanAbove.toFixed(2)}–${autoAbove.toFixed(2)}`,
     };
   return {
     status: "needs_work",
     label: `Human review required — confidence below ${humanAbove.toFixed(2)}`,
   };
+}
+
+/** Recompute gate score from stored raw judgments + current weights (no re-inference). */
+export function recomputeConfidenceFromJudgments(
+  raw: {
+    groundedNoul?: number;
+    completeNoul?: number;
+    actionableNoul?: number;
+    overallScore?: number;
+  },
+  weights: AgentConfig["confidence"]
+): number | null {
+  if (
+    raw.groundedNoul == null ||
+    raw.completeNoul == null ||
+    raw.actionableNoul == null ||
+    raw.overallScore == null
+  ) {
+    return null;
+  }
+  return compositeConfidenceScore({
+    grounded: raw.groundedNoul,
+    complete: raw.completeNoul,
+    actionable: raw.actionableNoul,
+    overall01: Math.min(1, Math.max(0, raw.overallScore / 4)),
+    weights,
+  });
 }

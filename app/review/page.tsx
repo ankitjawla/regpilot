@@ -25,6 +25,8 @@ type QueueItem = {
   created_at: string;
   obligation_count: string;
   grounding_soft_fail?: boolean | null;
+  needs_human_confirm?: boolean | null;
+  any_uncertain?: boolean | null;
 };
 
 type Detail = {
@@ -49,18 +51,21 @@ export default function ReviewQueue() {
   const [urgencyFilter, setUrgencyFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [uncertainOnly, setUncertainOnly] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   async function load() {
-    const r = await fetch("/api/review");
+    const q = uncertainOnly ? "?uncertain=1" : "";
+    const r = await fetch(`/api/review${q}`);
     const d = await r.json();
     setItems(d.items || []);
   }
 
   useEffect(() => {
     load().catch(() => setError("Could not load queue."));
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uncertainOnly]);
 
   const categories = useMemo(() => {
     const set = new Set(items.map((i) => i.category).filter(Boolean));
@@ -244,6 +249,17 @@ export default function ReviewQueue() {
             ))}
           </select>
         )}
+        <button
+          type="button"
+          onClick={() => setUncertainOnly((v) => !v)}
+          className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+            uncertainOnly
+              ? "bg-[var(--amber)] text-white"
+              : "bg-[var(--paper-2)] text-[var(--ink-mute)]"
+          }`}
+        >
+          {uncertainOnly ? "Needs human confirm ✓" : "Needs human confirm"}
+        </button>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -290,6 +306,9 @@ export default function ReviewQueue() {
                         <ConfidenceBadge score={it.confidence} />
                         {it.grounding_soft_fail && (
                           <Badge color="amber">grounding</Badge>
+                        )}
+                        {(it.needs_human_confirm || it.any_uncertain) && (
+                          <Badge color="amber">needs human confirm</Badge>
                         )}
                       </div>
                     </button>

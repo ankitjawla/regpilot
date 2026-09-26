@@ -22,6 +22,9 @@ export type ExportObligation = {
   action: string;
   due_date: string;
   source_quote: string;
+  due_date_iso?: string | null;
+  date_confidence?: number | null;
+  needs_review?: boolean | null;
 };
 
 export type ExportAudit = {
@@ -127,16 +130,49 @@ export function buildExportMarkdown(
         `- **Grounding overall supported:** ${fmtNoul(g.overallSupported)}`,
         `- **Invented claims noul:** ${fmtNoul(g.inventedClaims)}`,
         `- **Unsupported obligations:** ${g.unsupportedCount}`,
-        `- **Grounding soft-fail:** ${g.softFail ? "yes" : "no"}`
+        `- **Grounding soft-fail:** ${g.softFail ? "yes" : "no"}`,
+        g.needsReview ? `- **Citation needs review:** yes` : "",
+        g.verdictCounts
+          ? `- **Citation verdicts:** ${JSON.stringify(g.verdictCounts)}`
+          : ""
       );
       if (g.obligations?.length) {
         lines.push(``, `### Per-obligation grounding`, ``);
         for (const o of g.obligations) {
           lines.push(
-            `- **#${o.index + 1} ${o.owner}** — supported noul ${fmtNoul(o.supportedNoul)} (${o.supported ? "ok" : "weak"}): ${o.action}`
+            `- **#${o.index + 1} ${o.owner}** — ${o.verdict || "noul"} · supported noul ${fmtNoul(o.supportedNoul)} (${o.supported ? "ok" : "weak"}): ${o.action}`
           );
         }
       }
+    }
+    if (judgments?.hazard) {
+      lines.push(
+        `- **Hazard disposition:** ${judgments.hazard.disposition}`,
+        `- **Hazard severity:** ${judgments.hazard.severityScore.toFixed(2)}`
+      );
+    }
+    if (judgments?.playbook) {
+      lines.push(
+        `- **Playbook coverage mean:** ${judgments.playbook.meanCoverage.toFixed(2)}`,
+        judgments.playbook.missingSteps.length
+          ? `- **Missing playbook steps:** ${judgments.playbook.missingSteps.join("; ")}`
+          : `- **Playbook gaps:** none`
+      );
+    }
+    if (judgments?.cascade) {
+      lines.push(
+        `- **SDE cascade rung:** ${judgments.cascade.rung}${judgments.cascade.anyFire ? " (verifier fired)" : ""}`
+      );
+    }
+    if (judgments?.triage?.taxonomy) {
+      lines.push(
+        `- **Taxonomy:** ${judgments.triage.taxonomy.level} → ${judgments.triage.taxonomy.label} (fine ${judgments.triage.taxonomy.fine})`
+      );
+    }
+    if (judgments?.triage?.beam?.primary) {
+      lines.push(
+        `- **Beam path:** ${judgments.triage.beam.primary.path.join(" → ")} (score ${judgments.triage.beam.primary.score.toFixed(3)})`
+      );
     }
     lines.push(``);
   }
@@ -152,6 +188,11 @@ export function buildExportMarkdown(
         ``,
         `- **Action:** ${o.action}`,
         `- **Due:** ${o.due_date}`,
+        o.due_date_iso ? `- **Due ISO:** ${o.due_date_iso}` : "",
+        o.date_confidence != null
+          ? `- **Date confidence:** ${o.date_confidence.toFixed(2)}`
+          : "",
+        o.needs_review ? `- **Date needs review:** yes` : "",
         `- **Source:** “${o.source_quote}”`,
         ``
       );
