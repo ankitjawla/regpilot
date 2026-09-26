@@ -553,7 +553,7 @@ body {
   background: #fff;
   padding: 1.1rem 1.15rem 1.35rem;
   overflow: auto;
-  max-height: min(70vh, 640px);
+  max-height: min(78vh, 720px);
   animation: rp-flow-sheet-in 0.35s ease both;
 }
 
@@ -561,8 +561,13 @@ body {
   .rp-flow-sheet {
     border-top: none;
     border-left: 1px solid var(--line);
-    max-height: min(62vh, 560px);
+    max-height: min(72vh, 640px);
   }
+}
+
+.rp-flow-body.has-sheet .rp-flow-viewport {
+  min-height: min(72vh, 640px);
+  height: min(72vh, 640px);
 }
 
 @keyframes rp-flow-sheet-in {

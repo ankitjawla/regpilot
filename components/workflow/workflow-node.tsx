@@ -4,6 +4,7 @@ import type { CSSProperties } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import type { WorkflowStep } from "@/lib/agents";
 import type { WorkflowNodeData } from "@/lib/workflow-layout";
+import { contractFor } from "@/lib/workflow-contracts";
 
 const RUNTIME_TONE: Record<
   WorkflowStep["runtime"],
@@ -51,12 +52,15 @@ export type WorkflowFlowNode = Node<WorkflowNodeData, "workflow">;
 export function WorkflowStepNode({ data }: NodeProps<WorkflowFlowNode>) {
   const { step, index, ready, isLive, isActive } = data;
   const tone = runtimeTone(step.runtime);
+  const contract = contractFor(step.id);
+  const tip = `${contract.why}\n\nIn: ${contract.inputs[0] ?? "—"}\nOut: ${contract.outputs[0] ?? "—"}\nNext: ${contract.branches.map((b) => `${b.when} → ${b.goesTo}`).join("; ")}`;
 
   return (
     <div
       className={`rp-flow-node ${isActive ? "is-active" : ""} ${
         isLive ? "is-pulse" : ""
       }`}
+      title={tip}
       style={
         {
           "--rp-node-accent": tone.accent,
