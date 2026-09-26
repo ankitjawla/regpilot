@@ -11,28 +11,42 @@ import {
   useEdgesState,
   useNodesState,
   useReactFlow,
+  type Node,
   type NodeMouseHandler,
+  type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
 import type { WorkflowStep } from "@/lib/agents";
 import {
   buildWorkflowGraph,
+  type FlowNode,
+  type LaneLabelData,
   type WorkflowNode,
 } from "@/lib/workflow-layout";
 import {
+  WorkflowLaneLabel,
   WorkflowStepNode,
   type WorkflowFlowNode,
 } from "@/components/workflow/workflow-node";
 
-const nodeTypes = { workflow: WorkflowStepNode };
+type LaneFlowNode = Node<LaneLabelData, "laneLabel">;
+
+function LaneLabelNode(props: NodeProps<LaneFlowNode>) {
+  return <WorkflowLaneLabel data={props.data} />;
+}
+
+const nodeTypes = {
+  workflow: WorkflowStepNode,
+  laneLabel: LaneLabelNode,
+};
 
 function FitViewOnLoad({ stepCount }: { stepCount: number }) {
   const { fitView } = useReactFlow();
   useEffect(() => {
     if (!stepCount) return;
     const id = window.requestAnimationFrame(() => {
-      fitView({ padding: 0.18, duration: 420, maxZoom: 1.05 });
+      fitView({ padding: 0.14, duration: 420, maxZoom: 0.95 });
     });
     return () => window.cancelAnimationFrame(id);
   }, [fitView, stepCount]);
@@ -62,16 +76,17 @@ function WorkflowCanvasInner({
     [steps, activeId, liveId, runtimeReady]
   );
 
-  const [nodes, setNodes, onNodesChange] = useNodesState<WorkflowFlowNode>([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState(builtEdges);
 
   useEffect(() => {
-    setNodes(builtNodes as WorkflowFlowNode[]);
+    setNodes(builtNodes);
     setEdges(builtEdges);
   }, [builtNodes, builtEdges, setNodes, setEdges]);
 
-  const onNodeClick: NodeMouseHandler<WorkflowFlowNode> = useCallback(
+  const onNodeClick: NodeMouseHandler<FlowNode> = useCallback(
     (_event, node) => {
+      if (node.type === "laneLabel") return;
       onSelect(node.id);
     },
     [onSelect]
@@ -86,8 +101,8 @@ function WorkflowCanvasInner({
       onNodeClick={onNodeClick}
       nodeTypes={nodeTypes}
       fitView
-      fitViewOptions={{ padding: 0.18, maxZoom: 1.05 }}
-      minZoom={0.35}
+      fitViewOptions={{ padding: 0.14, maxZoom: 0.95 }}
+      minZoom={0.28}
       maxZoom={1.6}
       nodesDraggable={false}
       nodesConnectable={false}
@@ -103,10 +118,7 @@ function WorkflowCanvasInner({
         size={1.1}
         color="color-mix(in srgb, var(--ink-mute) 28%, transparent)"
       />
-      <Controls
-        showInteractive={false}
-        className="rp-flow-controls"
-      />
+      <Controls showInteractive={false} className="rp-flow-controls" />
       <MiniMap
         className="rp-flow-minimap"
         pannable
@@ -114,6 +126,7 @@ function WorkflowCanvasInner({
         nodeStrokeWidth={2}
         maskColor="rgba(14, 26, 43, 0.08)"
         nodeColor={(n) => {
+          if (n.type === "laneLabel") return "transparent";
           const data = (n as WorkflowNode).data;
           if (!data?.step) return "#c5d0dc";
           switch (data.step.runtime) {
@@ -150,3 +163,6 @@ export function WorkflowCanvas(props: {
     </ReactFlowProvider>
   );
 }
+
+// Keep type export reachable for consumers that import canvas types.
+export type { WorkflowFlowNode };

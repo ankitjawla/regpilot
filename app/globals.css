@@ -326,6 +326,91 @@ body {
   filter: drop-shadow(0 0 4px color-mix(in srgb, var(--sage) 45%, transparent));
 }
 
+.rp-flow-edge--parallel .react-flow__edge-path {
+  stroke: color-mix(in srgb, var(--sage) 55%, var(--line));
+}
+
+.rp-flow-edge--bypass .react-flow__edge-path {
+  stroke: color-mix(in srgb, var(--sky) 65%, var(--line));
+}
+
+.rp-flow-edge--block .react-flow__edge-path {
+  stroke: color-mix(in srgb, var(--coral) 70%, var(--line));
+}
+
+.rp-flow-edge--loop .react-flow__edge-path {
+  stroke: color-mix(in srgb, var(--amber) 70%, var(--line));
+}
+
+.rp-flow-edge--spur .react-flow__edge-path {
+  stroke: color-mix(in srgb, var(--ink-mute) 70%, var(--line));
+}
+
+.rp-flow-lane {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.15rem 0.2rem;
+  pointer-events: none;
+}
+
+.rp-flow-lane-label {
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.rp-flow-lane-hint {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ink-mute);
+}
+
+.rp-flow-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 0.85rem;
+  margin-top: 0.65rem;
+  padding: 0;
+  list-style: none;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink-mute);
+}
+
+.rp-flow-legend-swatch {
+  display: inline-block;
+  width: 1.1rem;
+  height: 2px;
+  margin-right: 0.3rem;
+  vertical-align: middle;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink-mute) 55%, var(--line));
+}
+
+.rp-flow-legend-swatch.is-parallel {
+  background: color-mix(in srgb, var(--sage) 70%, var(--line));
+}
+
+.rp-flow-legend-swatch.is-bypass {
+  background: color-mix(in srgb, var(--sky) 75%, var(--line));
+  background-image: repeating-linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--sky) 80%, var(--line)) 0 4px,
+    transparent 4px 7px
+  );
+}
+
+.rp-flow-legend-swatch.is-block {
+  background: color-mix(in srgb, var(--coral) 75%, var(--line));
+}
+
+.rp-flow-legend-swatch.is-loop {
+  background: color-mix(in srgb, var(--amber) 75%, var(--line));
+}
+
 .rp-flow-node {
   position: relative;
   display: flex;

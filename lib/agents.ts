@@ -249,8 +249,17 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   },
 };
 
+export type WorkflowStepId =
+  | AgentId
+  | "intake"
+  | "human"
+  | "export"
+  | "eval"
+  | "blocked"
+  | "fastpath";
+
 export type WorkflowStep = {
-  id: AgentId | "intake" | "human" | "export" | "eval";
+  id: WorkflowStepId;
   title: string;
   role: string;
   implementation: string;

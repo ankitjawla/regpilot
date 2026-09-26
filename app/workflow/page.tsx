@@ -7,6 +7,10 @@ import type { AgentConfig, WorkflowStep } from "@/lib/agents";
 import { JevPrimerCard } from "@/components/jev-primer";
 import { WorkflowCanvas } from "@/components/workflow/workflow-canvas";
 import { WorkflowDetailSheet } from "@/components/workflow/workflow-detail";
+import {
+  PULSE_ORDER,
+  resolveWorkflowStep,
+} from "@/lib/workflow-layout";
 
 type Health = {
   ok?: boolean;
@@ -52,29 +56,37 @@ export default function WorkflowPage() {
     };
   }, []);
 
-  // Pulse travels the real path along WORKFLOW_STEPS order.
+  // Pulse walks the branched path (happy path + verify fan-out + branches).
   useEffect(() => {
     if (!steps.length) return;
+    const path = PULSE_ORDER.filter(
+      (id) =>
+        steps.some((s) => s.id === id) ||
+        id === "blocked" ||
+        id === "fastpath"
+    );
+    if (!path.length) return;
     const id = window.setInterval(() => {
       setLiveId((prev) => {
-        if (prev == null) return steps[0]?.id ?? null;
-        const idx = steps.findIndex((s) => s.id === prev);
-        const next = idx < 0 ? 0 : (idx + 1) % steps.length;
-        return steps[next]?.id ?? null;
+        if (prev == null) return path[0] ?? null;
+        const idx = path.indexOf(prev);
+        const next = idx < 0 ? 0 : (idx + 1) % path.length;
+        return path[next] ?? null;
       });
-    }, 1600);
+    }, 1400);
     return () => window.clearInterval(id);
   }, [steps]);
 
   const activeStep = useMemo(
-    () => steps.find((s) => s.id === activeId) ?? null,
+    () => resolveWorkflowStep(steps, activeId),
     [steps, activeId]
   );
 
-  const activeIndex = useMemo(
-    () => (activeStep ? steps.findIndex((s) => s.id === activeStep.id) : -1),
-    [steps, activeStep]
-  );
+  const activeIndex = useMemo(() => {
+    if (!activeStep) return -1;
+    const fromCatalog = steps.findIndex((s) => s.id === activeStep.id);
+    return fromCatalog >= 0 ? fromCatalog : steps.length;
+  }, [steps, activeStep]);
 
   const runtimeReady = useCallback(
     (runtime: WorkflowStep["runtime"]): boolean | null => {
@@ -145,9 +157,27 @@ export default function WorkflowPage() {
               Live flow
             </h2>
             <p className="mt-1 max-w-xl text-xs text-[var(--ink-mute)]">
-              Pulse travels the real path. Pan and zoom the canvas; click a node
-              for implementation details and current agent policy.
+              Branched DAG: block / pass, fast vs full draft, parallel Jev
+              verify, then gate. Pan and zoom; click a node for details.
             </p>
+            <ul className="rp-flow-legend" aria-label="Edge legend">
+              <li>
+                <span className="rp-flow-legend-swatch is-main" /> Main
+              </li>
+              <li>
+                <span className="rp-flow-legend-swatch is-parallel" /> Parallel
+                Jev
+              </li>
+              <li>
+                <span className="rp-flow-legend-swatch is-bypass" /> Fast path
+              </li>
+              <li>
+                <span className="rp-flow-legend-swatch is-block" /> Block
+              </li>
+              <li>
+                <span className="rp-flow-legend-swatch is-loop" /> Re-analyze
+              </li>
+            </ul>
           </div>
           <div className="rp-flow-status-row" aria-label="Service health">
             <StatusChip
@@ -202,9 +232,11 @@ export default function WorkflowPage() {
       </section>
 
       <p className="mt-4 text-xs leading-relaxed text-[var(--ink-mute)]">
-        Sequence: intake → guardrail → triage → router → draft → TypeSafe
-        enrichment cluster → gate → human review → examiner export. Calibration /
-        eval is a side spur from the gate (no production write).
+        Branches: Guardrail can <em>block</em> or pass to Triage. Router splits{" "}
+        <em>full draft</em> vs <em>fast path</em>. Draft fans out into parallel
+        Jev checks (dedupe, grounding, playbook, hazard) that merge at
+        Confidence → Gate. Humans can <em>re-analyze</em> (loop to Draft). Eval
+        is a side spur (no production write).
       </p>
     </div>
   );
