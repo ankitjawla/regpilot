@@ -83,8 +83,11 @@ async function main() {
     const a = await req("GET", "/api/agents");
     assert(a.status === 200, `agents HTTP ${a.status}`);
     assert(a.json.config?.gate?.autoApproveAbove != null, "agents config");
+    assert(a.json.config?.console?.orgName, "console settings");
+    assert(a.json.config?.draft?.memoSystemPrompt, "draft prompts");
     assert(Array.isArray(a.json.workflow) && a.json.workflow.length >= 8, "workflow steps");
-    pass(`agents workflow steps=${a.json.workflow.length}`);
+    assert(Array.isArray(a.json.presets) && a.json.presets.length >= 3, "presets");
+    pass(`agents workflow steps=${a.json.workflow.length} presets=${a.json.presets.length}`);
   } catch (e) {
     fail("agents", e.message);
   }

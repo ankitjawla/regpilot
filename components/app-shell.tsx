@@ -11,6 +11,7 @@ const PRIMARY = [
   { href: "/review", label: "Review", hint: "Human gate" },
   { href: "/workflow", label: "Workflow", hint: "How it runs" },
   { href: "/agents", label: "Agents", hint: "Edit policy" },
+  { href: "/settings", label: "Settings", hint: "Presets & prompts" },
   { href: "/audit", label: "Audit", hint: "Decision trail" },
 ];
 

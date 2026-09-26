@@ -26,6 +26,7 @@ export async function GET() {
           configured: azureKey && azureEndpoint,
           deployment: bigDeployment(),
           smallDeployment: smallDeployment(),
+          smallUsesFallback: smallDeployment() === bigDeployment(),
           role: "obligations + memo drafting",
         },
         database: {

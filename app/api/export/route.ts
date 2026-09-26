@@ -5,6 +5,8 @@ import {
   type ExportPackage,
   type ExportAudit,
 } from "@/lib/export";
+import { getAgentConfig } from "@/lib/agent-store";
+import { DEFAULT_AGENT_CONFIG } from "@/lib/agents";
 
 export async function GET(req: NextRequest) {
   try {
@@ -81,8 +83,14 @@ export async function GET(req: NextRequest) {
       grounding,
     };
 
+    const agentCfg = await getAgentConfig().catch(() => DEFAULT_AGENT_CONFIG);
+
     if (format === "md" || format === "markdown") {
-      const md = buildExportMarkdown(pkg);
+      const md = buildExportMarkdown(pkg, {
+        titlePrefix: agentCfg.console.exportTitlePrefix,
+        footer: agentCfg.console.exportFooter,
+        orgName: agentCfg.console.orgName,
+      });
       return new NextResponse(md, {
         status: 200,
         headers: {
@@ -92,7 +100,13 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    return NextResponse.json(pkg);
+    return NextResponse.json({
+      ...pkg,
+      console: {
+        orgName: agentCfg.console.orgName,
+        exportTitlePrefix: agentCfg.console.exportTitlePrefix,
+      },
+    });
   } catch (e) {
     console.error("[export]", (e as Error).message);
     return NextResponse.json({ error: "Export failed" }, { status: 500 });

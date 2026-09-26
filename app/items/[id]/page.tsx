@@ -42,6 +42,12 @@ type Detail = {
     unsupportedCount?: number;
     details?: string;
   } | null;
+  playbook?: {
+    id: string;
+    framework: string;
+    title: string;
+    steps: string[];
+  } | null;
   audit: {
     id: number;
     actor: string;
@@ -230,6 +236,19 @@ export default function ItemDetail({
         </div>
 
         <div className="space-y-4 lg:col-span-5">
+          {data.playbook && (
+            <Card>
+              <SectionTitle eyebrow={data.playbook.framework}>
+                {data.playbook.title}
+              </SectionTitle>
+              <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm text-[var(--ink-2)]">
+                {data.playbook.steps.map((step, i) => (
+                  <li key={i}>{step}</li>
+                ))}
+              </ol>
+            </Card>
+          )}
+
           {data.grounding && (
             <Card>
               <SectionTitle eyebrow="TypeSafe">Grounding check</SectionTitle>
