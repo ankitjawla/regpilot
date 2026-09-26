@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import { Card, SectionTitle, Badge, StatusBadge, ConfidenceBadge, UrgencyBadge, PageHeader } from "@/components/ui";
+import { usePipelineRun } from "@/components/pipeline-run";
+import type { PipelineResultPayload } from "@/lib/pipeline-events";
+import Link from "next/link";
 
 type Sample = {
   id: string;
@@ -53,6 +55,39 @@ type AnalyzeResult = {
   } | null;
 };
 
+function viewFromRun(payload: PipelineResultPayload | null | undefined): {
+  triage: TriageResult | null;
+  analysis: AnalyzeResult | null;
+} {
+  if (!payload?.guardrail || payload.itemId == null) {
+    return { triage: null, analysis: null };
+  }
+  const triage: TriageResult = {
+    blocked: Boolean(payload.blocked),
+    itemId: payload.itemId,
+    guardrail: payload.guardrail,
+    triage: payload.triage,
+    decisions: null,
+    jev: payload.jev,
+    route: payload.route,
+  };
+  if (payload.blocked || (!payload.memo && !payload.obligations)) {
+    return { triage, analysis: null };
+  }
+  return {
+    triage,
+    analysis: {
+      obligations: payload.obligations || [],
+      memo: payload.memo || "",
+      modelUsed: payload.modelUsed || "",
+      confidence: payload.confidence || { score: 0, reasons: [] },
+      gate: payload.gate || { status: payload.status || "", label: "" },
+      status: payload.status || payload.gate?.status || "",
+      grounding: payload.grounding,
+    },
+  };
+}
+
 export default function Intake() {
   const [text, setText] = useState("");
   const [title, setTitle] = useState("");
@@ -64,6 +99,20 @@ export default function Intake() {
   const [busy, setBusy] = useState<"triage" | "analyze" | "pipeline" | null>(null);
   const [error, setError] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  const restoredRun = useRef<string | null>(null);
+  const { run, hydrated, startPipeline, clearRun } = usePipelineRun();
+  const pipelineBusy = run?.status === "running";
+  const sessionView = viewFromRun(run?.result);
+  const panelTriage = sessionView.triage ?? triage;
+  const panelAnalysis = sessionView.analysis ?? analysis;
+
+  useEffect(() => {
+    if (!hydrated || !run) return;
+    if (restoredRun.current === run.id) return;
+    restoredRun.current = run.id;
+    setText(run.sourceText);
+    setTitle(run.title);
+  }, [hydrated, run]);
 
   useEffect(() => {
     fetch("/api/samples")
@@ -86,14 +135,14 @@ export default function Intake() {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
         e.preventDefault();
-        if (busy) return;
+        if (busy || pipelineBusy) return;
         if (text.trim().length >= 20) runPipeline();
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [text, title, busy]);
+  }, [text, title, busy, pipelineBusy]);
 
   function reset() {
     setTriage(null);
@@ -102,6 +151,7 @@ export default function Intake() {
   }
 
   async function runTriage() {
+    clearRun();
     reset();
     setBusy("triage");
     try {
@@ -121,14 +171,14 @@ export default function Intake() {
   }
 
   async function runAnalyze() {
-    if (!triage) return;
+    if (!panelTriage) return;
     setBusy("analyze");
     setError("");
     try {
       const r = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itemId: triage.itemId }),
+        body: JSON.stringify({ itemId: panelTriage.itemId }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Analysis failed");
@@ -140,42 +190,9 @@ export default function Intake() {
     }
   }
 
-  async function runPipeline() {
+  function runPipeline() {
     reset();
-    setBusy("pipeline");
-    try {
-      const r = await fetch("/api/pipeline", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, title }),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "Pipeline failed");
-      setTriage({
-        blocked: d.blocked,
-        itemId: d.itemId,
-        guardrail: d.guardrail,
-        triage: d.triage,
-        decisions: d.decisions ?? null,
-        jev: d.jev,
-        route: d.route,
-      });
-      if (!d.blocked) {
-        setAnalysis({
-          obligations: d.obligations || [],
-          memo: d.memo || "",
-          modelUsed: d.modelUsed || "",
-          confidence: d.confidence || { score: 0, reasons: [] },
-          gate: d.gate || { status: d.status, label: "" },
-          status: d.status,
-          grounding: d.grounding,
-        });
-      }
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(null);
-    }
+    startPipeline({ text, title });
   }
 
   function onFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -262,6 +279,73 @@ export default function Intake() {
         subtitle="Paste a regulatory document or load a fictional sample. TypeSafe System One redacts PII and screens for injection before Azure OpenAI drafts."
       />
 
+      {run && (
+        <Card className="mb-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <SectionTitle eyebrow="This session">
+                {run.status === "running"
+                  ? "Pipeline running"
+                  : run.status === "error"
+                    ? "Pipeline stopped"
+                    : run.blocked
+                      ? "Pipeline blocked"
+                      : "Pipeline finished"}
+              </SectionTitle>
+              <p className="mt-1 text-sm text-[var(--ink-2)]">
+                {run.title}
+                {run.itemId != null ? ` · item ${run.itemId}` : ""}
+                {run.error ? ` · ${run.error}` : ""}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href="/workflow"
+                className="rounded-lg bg-[var(--ink)] px-3 py-2 text-xs font-semibold text-white"
+              >
+                Watch on workflow
+              </Link>
+              {run.itemId != null && run.status === "done" && (
+                <Link
+                  href={`/items/${run.itemId}`}
+                  className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-xs font-semibold"
+                >
+                  Open package
+                </Link>
+              )}
+              <button
+                type="button"
+                onClick={clearRun}
+                className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-xs font-semibold"
+              >
+                Clear run
+              </button>
+            </div>
+          </div>
+          <ol className="mt-3 flex flex-wrap gap-1.5">
+            {run.stages.map((s) => (
+              <li
+                key={s.id}
+                className={`rounded-md px-2 py-1 font-mono text-[10px] font-semibold ${
+                  s.state === "running"
+                    ? "bg-[var(--sage)] text-white"
+                    : s.state === "done"
+                      ? "bg-[var(--sage-soft)] text-[var(--sage)]"
+                      : s.state === "blocked"
+                        ? "bg-[var(--coral)]/15 text-[var(--coral)]"
+                        : s.state === "skipped"
+                          ? "bg-[var(--paper-2)] text-[var(--ink-mute)] line-through"
+                          : "bg-[var(--paper-2)] text-[var(--ink-mute)]"
+                }`}
+                title={s.detail || s.state}
+              >
+                {s.id}
+              </li>
+            ))}
+          </ol>
+        </Card>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <SectionTitle eyebrow="Source">Document</SectionTitle>
@@ -281,16 +365,14 @@ export default function Intake() {
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               onClick={runPipeline}
-              disabled={busy !== null || text.trim().length < 20}
+              disabled={busy !== null || pipelineBusy || text.trim().length < 20}
               className="rounded-xl bg-[var(--sage)] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0d655e] disabled:opacity-50"
             >
-              {busy === "pipeline"
-                ? "Running full pipeline…"
-                : "Run full pipeline ⌘↵"}
+              {pipelineBusy ? "Running full pipeline…" : "Run full pipeline ⌘↵"}
             </button>
             <button
               onClick={runTriage}
-              disabled={busy !== null || text.trim().length < 20}
+              disabled={busy !== null || pipelineBusy || text.trim().length < 20}
               className="rounded-xl bg-[var(--ink)] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[var(--ink-2)] disabled:opacity-50"
             >
               {busy === "triage" ? "Triaging…" : "Triage only"}
@@ -380,17 +462,17 @@ export default function Intake() {
         </Card>
       </div>
 
-      {triage && (
+      {panelTriage && (
         <div className="mt-6 space-y-4">
-          <Card className={triage.blocked ? "border-[var(--coral)]/40" : ""}>
+          <Card className={panelTriage.blocked ? "border-[var(--coral)]/40" : ""}>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <SectionTitle eyebrow="Guardrail">PII + injection screen</SectionTitle>
-              {modelBadge(triage.jev?.model, triage.jev?.latencyMs)}
+              {modelBadge(panelTriage.jev?.model, panelTriage.jev?.latencyMs)}
             </div>
-            {triage.blocked ? (
+            {panelTriage.blocked ? (
               <div>
                 <Badge color="red">Blocked</Badge>
-                <p className="mt-2 text-sm text-[var(--ink)]">{triage.guardrail.reason}</p>
+                <p className="mt-2 text-sm text-[var(--ink)]">{panelTriage.guardrail.reason}</p>
                 <p className="mt-1 text-xs text-[var(--ink-mute)]">
                   Blocked inputs never reach the large model. The attempt was logged to the audit trail.
                 </p>
@@ -398,54 +480,54 @@ export default function Intake() {
             ) : (
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <Badge color="green">Passed</Badge>
-                {triage.guardrail.piiFound ? (
-                  <Badge color="amber">PII redacted: {triage.guardrail.redactions.join(", ")}</Badge>
+                {panelTriage.guardrail.piiFound ? (
+                  <Badge color="amber">PII redacted: {panelTriage.guardrail.redactions.join(", ")}</Badge>
                 ) : (
                   <Badge color="slate">No PII found</Badge>
                 )}
-                <span className="w-full text-xs text-[var(--ink-mute)]">{triage.guardrail.reason}</span>
+                <span className="w-full text-xs text-[var(--ink-mute)]">{panelTriage.guardrail.reason}</span>
               </div>
             )}
           </Card>
 
-          {!triage.blocked && triage.triage && triage.route && (
+          {!panelTriage.blocked && panelTriage.triage && panelTriage.route && (
             <>
               <Card>
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <SectionTitle eyebrow="Triage">System One judgments</SectionTitle>
-                  {modelBadge(triage.jev?.model, triage.jev?.latencyMs)}
+                  {modelBadge(panelTriage.jev?.model, panelTriage.jev?.latencyMs)}
                 </div>
                 <div className="flex flex-wrap gap-2 text-sm">
-                  <Badge color="blue">{triage.triage.category}</Badge>
-                  <UrgencyBadge urgency={triage.triage.urgency} />
-                  <Badge color="slate">{triage.triage.jurisdiction}</Badge>
+                  <Badge color="blue">{panelTriage.triage.category}</Badge>
+                  <UrgencyBadge urgency={panelTriage.triage.urgency} />
+                  <Badge color="slate">{panelTriage.triage.jurisdiction}</Badge>
                   <span className="inline-flex items-center gap-1 text-xs text-[var(--ink-mute)]">
-                    confidence <ConfidenceBadge score={triage.triage.confidence} />
+                    confidence <ConfidenceBadge score={panelTriage.triage.confidence} />
                   </span>
                 </div>
-                <p className="mt-2 text-sm text-[var(--ink-2)]">{triage.triage.rationale}</p>
-                {triage.decisions && (
+                <p className="mt-2 text-sm text-[var(--ink-2)]">{panelTriage.triage.rationale}</p>
+                {panelTriage.decisions && (
                   <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                     {[
                       {
                         label: "Injection",
-                        value: triage.decisions.injectionNoul,
+                        value: panelTriage.decisions.injectionNoul,
                         hint: "noul · block ≥ 0.55",
                       },
                       {
                         label: "Escalate",
-                        value: triage.decisions.escalateNoul,
+                        value: panelTriage.decisions.escalateNoul,
                         hint: "noul · full path ≥ 0.75 if non-routine",
                       },
                       {
                         label: "Category conf",
-                        value: triage.decisions.category.confidence,
-                        hint: triage.decisions.category.choice,
+                        value: panelTriage.decisions.category.confidence,
+                        hint: panelTriage.decisions.category.choice,
                       },
                       {
                         label: "Urgency conf",
-                        value: triage.decisions.urgency.confidence,
-                        hint: triage.decisions.urgency.choice,
+                        value: panelTriage.decisions.urgency.confidence,
+                        hint: panelTriage.decisions.urgency.choice,
                       },
                     ].map((c) => (
                       <div key={c.label} className="rounded-lg bg-[var(--paper-2)] px-3 py-2">
@@ -462,15 +544,15 @@ export default function Intake() {
                 )}
                 <div className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--paper-2)] p-3 text-sm">
                   <span className="font-semibold">Route: </span>
-                  <Badge color={triage.route.fastPath ? "green" : "blue"}>
-                    {triage.route.fastPath ? "Fast path (draft model)" : "Full analysis (large model)"}
+                  <Badge color={panelTriage.route.fastPath ? "green" : "blue"}>
+                    {panelTriage.route.fastPath ? "Fast path (draft model)" : "Full analysis (large model)"}
                   </Badge>
-                  <p className="mt-1 text-xs text-[var(--ink-mute)]">{triage.route.reason}</p>
-                  <p className="mt-1 font-mono text-[11px] text-[var(--ink-mute)]">model: {triage.route.model}</p>
+                  <p className="mt-1 text-xs text-[var(--ink-mute)]">{panelTriage.route.reason}</p>
+                  <p className="mt-1 font-mono text-[11px] text-[var(--ink-mute)]">model: {panelTriage.route.model}</p>
                 </div>
               </Card>
 
-              {!analysis && (
+              {!panelAnalysis && (
                 <button
                   onClick={runAnalyze}
                   disabled={busy !== null}
@@ -484,14 +566,14 @@ export default function Intake() {
         </div>
       )}
 
-      {analysis && (
+      {panelAnalysis && (
         <div className="mt-6 space-y-4">
           <Card>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <SectionTitle eyebrow="Obligations">Extracted by Azure</SectionTitle>
               <span className="font-mono text-[11px] text-[var(--ink-mute)]">extracted by large model</span>
             </div>
-            {analysis.obligations.length === 0 ? (
+            {panelAnalysis.obligations.length === 0 ? (
               <p className="text-sm text-[var(--ink-mute)]">No concrete obligations found.</p>
             ) : (
               <div className="overflow-x-auto">
@@ -505,7 +587,7 @@ export default function Intake() {
                     </tr>
                   </thead>
                   <tbody>
-                    {analysis.obligations.map((o, i) => (
+                    {panelAnalysis.obligations.map((o, i) => (
                       <tr key={i} className="border-b border-[var(--line)]/70 align-top last:border-0">
                         <td className="py-2 pr-3 font-medium">{o.owner}</td>
                         <td className="py-2 pr-3">{o.action}</td>
@@ -522,37 +604,37 @@ export default function Intake() {
           <Card>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <SectionTitle eyebrow="Memo">Draft</SectionTitle>
-              <span className="font-mono text-[11px] text-[var(--ink-mute)]">drafted by {analysis.modelUsed}</span>
+              <span className="font-mono text-[11px] text-[var(--ink-mute)]">drafted by {panelAnalysis.modelUsed}</span>
             </div>
             <div className="memo rounded-lg bg-[var(--paper-2)] p-4">
-              <ReactMarkdown>{analysis.memo}</ReactMarkdown>
+              <ReactMarkdown>{panelAnalysis.memo}</ReactMarkdown>
             </div>
           </Card>
 
-          {analysis.grounding && (
+          {panelAnalysis.grounding && (
             <Card>
               <SectionTitle eyebrow="TypeSafe">Grounding check</SectionTitle>
               <div className="flex flex-wrap gap-2 text-sm">
                 <Badge color="green">
                   supported{" "}
-                  {analysis.grounding.overallSupported != null
-                    ? analysis.grounding.overallSupported.toFixed(2)
+                  {panelAnalysis.grounding.overallSupported != null
+                    ? panelAnalysis.grounding.overallSupported.toFixed(2)
                     : "—"}
                 </Badge>
                 <Badge
                   color={
-                    (analysis.grounding.unsupportedCount || 0) > 0 ? "amber" : "slate"
+                    (panelAnalysis.grounding.unsupportedCount || 0) > 0 ? "amber" : "slate"
                   }
                 >
-                  unsupported {analysis.grounding.unsupportedCount ?? 0}
+                  unsupported {panelAnalysis.grounding.unsupportedCount ?? 0}
                 </Badge>
-                {analysis.grounding.inventedClaims != null && (
+                {panelAnalysis.grounding.inventedClaims != null && (
                   <Badge
                     color={
-                      analysis.grounding.inventedClaims > 0.55 ? "red" : "slate"
+                      panelAnalysis.grounding.inventedClaims > 0.55 ? "red" : "slate"
                     }
                   >
-                    invented {analysis.grounding.inventedClaims.toFixed(2)}
+                    invented {panelAnalysis.grounding.inventedClaims.toFixed(2)}
                   </Badge>
                 )}
               </div>
@@ -562,30 +644,30 @@ export default function Intake() {
           <Card>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <SectionTitle eyebrow="Gate">Confidence</SectionTitle>
-              {modelBadge(analysis.confidence.model)}
+              {modelBadge(panelAnalysis.confidence.model)}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm text-[var(--ink-2)]">Score</span>
-              <ConfidenceBadge score={analysis.confidence.score} />
-              <StatusBadge status={analysis.status} />
+              <ConfidenceBadge score={panelAnalysis.confidence.score} />
+              <StatusBadge status={panelAnalysis.status} />
             </div>
             <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-[var(--ink-2)]">
-              {analysis.confidence.reasons.map((r, i) => (
+              {panelAnalysis.confidence.reasons.map((r, i) => (
                 <li key={i}>{r}</li>
               ))}
             </ul>
-            <p className="mt-2 text-xs text-[var(--ink-mute)]">{analysis.gate.label}</p>
+            <p className="mt-2 text-xs text-[var(--ink-mute)]">{panelAnalysis.gate.label}</p>
             <div className="mt-3 flex flex-wrap gap-2">
-              {triage && (
+              {panelTriage && (
                 <Link
-                  href={`/items/${triage.itemId}`}
+                  href={`/items/${panelTriage.itemId}`}
                   className="inline-block rounded-lg bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--ink-2)]"
                 >
                   Open examiner package
                 </Link>
               )}
-              {(analysis.status === "pending_review" ||
-                analysis.status === "needs_work") && (
+              {(panelAnalysis.status === "pending_review" ||
+                panelAnalysis.status === "needs_work") && (
                 <Link
                   href="/review"
                   className="inline-block rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600"

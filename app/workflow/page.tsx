@@ -11,6 +11,8 @@ import {
   PULSE_ORDER,
   resolveWorkflowStep,
 } from "@/lib/workflow-layout";
+import { usePipelineRun } from "@/components/pipeline-run";
+import type { StageState } from "@/lib/pipeline-events";
 
 type Health = {
   ok?: boolean;
@@ -33,6 +35,13 @@ export default function WorkflowPage() {
   const [liveId, setLiveId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [sheetOpen, setSheetOpen] = useState(false);
+  const { run, clearRun } = usePipelineRun();
+  const stageStates = useMemo(() => {
+    if (!run) return null;
+    const map: Record<string, StageState> = {};
+    for (const stage of run.stages) map[stage.id] = stage.state;
+    return map;
+  }, [run]);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,9 +65,12 @@ export default function WorkflowPage() {
     };
   }, []);
 
-  // Pulse walks the branched path (happy path + verify fan-out + branches).
+  // Demo pulse only when this tab has no live pipeline session.
   useEffect(() => {
-    if (!steps.length) return;
+    if (!steps.length || run) {
+      setLiveId(null);
+      return;
+    }
     const path = PULSE_ORDER.filter(
       (id) =>
         steps.some((s) => s.id === id) ||
@@ -75,7 +87,7 @@ export default function WorkflowPage() {
       });
     }, 1400);
     return () => window.clearInterval(id);
-  }, [steps]);
+  }, [steps, run]);
 
   const activeStep = useMemo(
     () => resolveWorkflowStep(steps, activeId),
@@ -143,6 +155,54 @@ export default function WorkflowPage() {
         </div>
       )}
 
+      {run && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius)] border border-[var(--line)] bg-white px-4 py-3 shadow-[var(--shadow)]">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-mute)]">
+              Session run
+            </div>
+            <p className="mt-1 text-sm font-semibold text-[var(--ink)]">
+              {run.status === "running"
+                ? "Executing this pipeline"
+                : run.status === "error"
+                  ? "Pipeline stopped"
+                  : run.blocked
+                    ? "Blocked at guardrail"
+                    : "Finished path"}
+              {run.itemId != null ? ` · item ${run.itemId}` : ""}
+            </p>
+            <p className="text-xs text-[var(--ink-mute)]">
+              {run.title}
+              {run.result?.gate?.label ? ` · ${run.result.gate.label}` : ""}
+              {run.error ? ` · ${run.error}` : ""}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/intake"
+              className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-xs font-semibold"
+            >
+              Back to intake
+            </Link>
+            {run.itemId != null && (
+              <Link
+                href={`/items/${run.itemId}`}
+                className="rounded-lg bg-[var(--ink)] px-3 py-2 text-xs font-semibold text-white"
+              >
+                Open package
+              </Link>
+            )}
+            <button
+              type="button"
+              onClick={clearRun}
+              className="rounded-lg border border-[var(--line)] px-3 py-2 text-xs font-semibold"
+            >
+              Clear run
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="mb-4">
         <JevPrimerCard compact />
       </div>
@@ -154,11 +214,12 @@ export default function WorkflowPage() {
               Pipeline
             </div>
             <h2 className="font-display text-xl font-semibold tracking-[-0.02em] text-[var(--ink)]">
-              Live flow
+              {run ? "This run" : "Live flow"}
             </h2>
             <p className="mt-1 max-w-xl text-xs text-[var(--ink-mute)]">
-              Click any node for what goes in, what goes out, why it exists, and
-              exactly how the next block is chosen (with live thresholds).
+              {run
+                ? "Nodes follow the pipeline you started on Intake. Done, running, skipped, and blocked stay in this browser tab."
+                : "Click any node for what goes in, what goes out, and how the next block is chosen. Run a pipeline to light the real path."}
             </p>
             <ul className="rp-flow-legend" aria-label="Edge legend">
               <li>
@@ -206,7 +267,8 @@ export default function WorkflowPage() {
               <WorkflowCanvas
                 steps={steps}
                 activeId={activeId}
-                liveId={liveId}
+                liveId={run ? null : liveId}
+                stageStates={stageStates}
                 runtimeReady={runtimeReady}
                 onSelect={onSelect}
               />

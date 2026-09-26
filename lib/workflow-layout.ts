@@ -1,5 +1,6 @@
 import type { Edge, Node } from "@xyflow/react";
 import type { WorkflowStep } from "@/lib/agents";
+import type { StageState } from "@/lib/pipeline-events";
 
 export type WorkflowNodeData = {
   step: WorkflowStep;
@@ -7,6 +8,7 @@ export type WorkflowNodeData = {
   ready: boolean | null;
   isLive: boolean;
   isActive: boolean;
+  runState: StageState | null;
   [key: string]: unknown;
 };
 
@@ -349,6 +351,7 @@ export function buildWorkflowGraph(
     activeId: string | null;
     liveId: string | null;
     runtimeReady: (runtime: WorkflowStep["runtime"]) => boolean | null;
+    stageStates?: Record<string, StageState> | null;
   }
 ): { nodes: FlowNode[]; edges: Edge[] } {
   const byId = new Map(steps.map((s, i) => [s.id, { step: s, index: i }]));
@@ -356,6 +359,7 @@ export function buildWorkflowGraph(
   const workflowNodes: WorkflowNode[] = steps.map(({ id }, i) => {
     const entry = byId.get(id)!;
     const pos = POSITIONS[id] ?? { x: i * 200, y: 0 };
+    const runState = opts.stageStates?.[id] ?? null;
     return {
       id,
       type: "workflow",
@@ -364,26 +368,31 @@ export function buildWorkflowGraph(
         step: entry.step,
         index: entry.index,
         ready: opts.runtimeReady(entry.step.runtime),
-        isLive: opts.liveId === id,
+        isLive: opts.stageStates ? runState === "running" : opts.liveId === id,
         isActive: opts.activeId === id,
+        runState,
       },
       style: { width: NODE_W, height: NODE_H },
     };
   });
 
-  const syntheticNodes: WorkflowNode[] = SYNTHETIC_STEPS.map((step, i) => ({
-    id: step.id,
-    type: "workflow" as const,
-    position: POSITIONS[step.id] ?? { x: 0, y: 0 },
-    data: {
-      step,
-      index: steps.length + i,
-      ready: true,
-      isLive: opts.liveId === step.id,
-      isActive: opts.activeId === step.id,
-    },
-    style: { width: NODE_W, height: NODE_H },
-  }));
+  const syntheticNodes: WorkflowNode[] = SYNTHETIC_STEPS.map((step, i) => {
+    const runState = opts.stageStates?.[step.id] ?? null;
+    return {
+      id: step.id,
+      type: "workflow" as const,
+      position: POSITIONS[step.id] ?? { x: 0, y: 0 },
+      data: {
+        step,
+        index: steps.length + i,
+        ready: true,
+        isLive: opts.stageStates ? runState === "running" : opts.liveId === step.id,
+        isActive: opts.activeId === step.id,
+        runState,
+      },
+      style: { width: NODE_W, height: NODE_H },
+    };
+  });
 
   const laneNodes: LaneLabelNode[] = LANES.map((lane) => ({
     id: lane.id,
@@ -404,18 +413,29 @@ export function buildWorkflowGraph(
     (e) => known.has(e.source) && known.has(e.target)
   ).map((e) => {
     const kind: EdgeKind = e.kind ?? "main";
-    const onPulse = opts.liveId === e.target;
+    const targetState = opts.stageStates?.[e.target];
+    const running = opts.stageStates
+      ? targetState === "running"
+      : opts.liveId === e.target;
+    const taken = Boolean(
+      opts.stageStates &&
+        (targetState === "done" ||
+          targetState === "blocked" ||
+          targetState === "running")
+    );
+    const highlight = opts.stageStates ? taken : running;
     return {
       id: `${e.source}->${e.target}`,
       source: e.source,
       target: e.target,
       sourceHandle: e.sourceHandle,
       targetHandle: e.targetHandle,
-      type: kind === "loop" ? "smoothstep" : "smoothstep",
+      type: "smoothstep",
       label: e.label,
-      animated:
-        onPulse || kind === "spur" || kind === "parallel" || kind === "loop",
-      className: edgeClass(kind, onPulse),
+      animated: opts.stageStates
+        ? running
+        : running || kind === "spur" || kind === "parallel" || kind === "loop",
+      className: edgeClass(kind, highlight),
       labelStyle: {
         fill: "var(--ink-mute)",
         fontSize: 10,
@@ -428,8 +448,8 @@ export function buildWorkflowGraph(
       labelBgPadding: [4, 6] as [number, number],
       labelBgBorderRadius: 6,
       style: {
-        stroke: edgeStroke(kind, onPulse),
-        strokeWidth: onPulse ? 2.25 : kind === "parallel" ? 1.35 : 1.5,
+        stroke: edgeStroke(kind, highlight),
+        strokeWidth: highlight ? 2.25 : kind === "parallel" ? 1.35 : 1.5,
         strokeDasharray:
           kind === "spur" || kind === "bypass" || kind === "loop"
             ? "6 4"

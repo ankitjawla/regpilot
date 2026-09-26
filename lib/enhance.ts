@@ -21,6 +21,8 @@ import {
 import type { BandConfig } from "./bands";
 import type { Triage } from "./jev";
 
+export type EnhanceStageId = "dedupe" | "grounding" | "playbook" | "hazard";
+
 export type EnhanceContext = {
   source: string;
   title: string;
@@ -30,6 +32,12 @@ export type EnhanceContext = {
   agentCfg: AgentConfig;
   cascade?: CascadeMeta | null;
   existingJudgments?: ItemJudgments | null;
+  /** Live workflow: report each verify step as it starts and finishes. */
+  onStage?: (
+    id: EnhanceStageId,
+    state: "running" | "done" | "skipped",
+    detail?: string
+  ) => void;
 };
 
 export type EnhanceResult = {
@@ -166,6 +174,7 @@ export async function runPostDraftEnhancements(
     typesafeConfigured() &&
     obligations.length >= 2
   ) {
+    ctx.onStage?.("dedupe", "running");
     try {
       const dedupe = await typesafeDedupeObligations({ obligations });
       judgments.dedupe = dedupe;
@@ -175,12 +184,20 @@ export async function runPostDraftEnhancements(
         );
         forceConfirm = true;
       }
+      ctx.onStage?.(
+        "dedupe",
+        "done",
+        `${dedupe.mergeSuggestions.length} merge suggestion(s)`
+      );
     } catch (e) {
       console.error(
         "[enhance] dedupe unavailable:",
         (e as Error).message?.slice(0, 100)
       );
+      ctx.onStage?.("dedupe", "done", "unavailable");
     }
+  } else {
+    ctx.onStage?.("dedupe", "skipped");
   }
 
   // --- grounding (citation-grade)
@@ -189,6 +206,7 @@ export async function runPostDraftEnhancements(
     typesafeConfigured() &&
     obligations.length > 0
   ) {
+    ctx.onStage?.("grounding", "running");
     try {
       const g = await typesafeGroundObligations({
         source,
@@ -216,12 +234,20 @@ export async function runPostDraftEnhancements(
         );
       }
       if (groundingNeedsReview) forceConfirm = true;
+      ctx.onStage?.(
+        "grounding",
+        "done",
+        softFail ? "soft-fail" : "checked"
+      );
     } catch (e) {
       console.error(
         "[enhance] grounding unavailable:",
         (e as Error).message?.slice(0, 100)
       );
+      ctx.onStage?.("grounding", "done", "unavailable");
     }
+  } else {
+    ctx.onStage?.("grounding", "skipped");
   }
 
   // --- playbook coverage
@@ -232,6 +258,7 @@ export async function runPostDraftEnhancements(
       source: source.slice(0, 2000),
     });
     if (playbook) {
+      ctx.onStage?.("playbook", "running", playbook.id);
       try {
         const cov = await typesafePlaybookCoverage({
           source,
@@ -247,17 +274,30 @@ export async function runPostDraftEnhancements(
             `Playbook gaps: ${cov.missingSteps.slice(0, 3).join("; ")}`
           );
         }
+        ctx.onStage?.(
+          "playbook",
+          "done",
+          cov.missingSteps.length
+            ? `${cov.missingSteps.length} gap(s)`
+            : "covered"
+        );
       } catch (e) {
         console.error(
           "[enhance] playbook coverage unavailable:",
           (e as Error).message?.slice(0, 100)
         );
+        ctx.onStage?.("playbook", "done", "unavailable");
       }
+    } else {
+      ctx.onStage?.("playbook", "skipped", "no playbook match");
     }
+  } else {
+    ctx.onStage?.("playbook", "skipped");
   }
 
   // --- outbound hazard
   if (agentCfg.hazard.enabled && typesafeConfigured() && memo.trim()) {
+    ctx.onStage?.("hazard", "running");
     try {
       const hazard = await typesafeMemoHazard({
         memo,
@@ -276,12 +316,16 @@ export async function runPostDraftEnhancements(
           `Outbound hazard screen: review (severity ${hazard.severityScore.toFixed(2)})`
         );
       }
+      ctx.onStage?.("hazard", "done", hazard.disposition);
     } catch (e) {
       console.error(
         "[enhance] hazard screen unavailable:",
         (e as Error).message?.slice(0, 100)
       );
+      ctx.onStage?.("hazard", "done", "unavailable");
     }
+  } else {
+    ctx.onStage?.("hazard", "skipped");
   }
 
   const anyUncertain = Boolean(judgments.triage?.anyUncertain);
