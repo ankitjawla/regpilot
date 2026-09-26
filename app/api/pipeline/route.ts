@@ -29,34 +29,127 @@ import {
   enrichTriageJudgments,
   taxonomyFromTriage,
 } from "@/lib/enhance";
+import type { StageEvent } from "@/lib/pipeline-events";
 
 export const maxDuration = 120;
+
+type Emit = (event: StageEvent) => void;
+
+const SKIP_AFTER_BLOCK: StageEvent["id"][] = [
+  "triage",
+  "router",
+  "fastpath",
+  "draft",
+  "dedupe",
+  "grounding",
+  "playbook",
+  "hazard",
+  "confidence",
+  "gate",
+];
+
+function wantsStream(req: NextRequest): boolean {
+  const accept = req.headers.get("accept") || "";
+  return (
+    accept.includes("text/event-stream") ||
+    req.headers.get("x-regpilot-stream") === "1"
+  );
+}
+
+type PipelineBody = { text?: string; title?: string };
 
 /**
  * One-shot intake: guardrail → triage → route → obligations (cascade) → memo →
  * enhancements (dates/dedupe/grounding/playbook/hazard) → confidence → gate.
+ * JSON by default. `Accept: text/event-stream` emits stage events then a result.
  */
 export async function POST(req: NextRequest) {
+  let body: PipelineBody;
+  try {
+    body = (await req.json()) as PipelineBody;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  if (!wantsStream(req)) {
+    const result = await executePipeline(req, body, () => {});
+    return NextResponse.json(result.body, { status: result.status });
+  }
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const emit: Emit = (event) => {
+        controller.enqueue(
+          encoder.encode(`data: ${JSON.stringify(event)}\n\n`)
+        );
+      };
+      try {
+        const result = await executePipeline(req, body, emit);
+        if (result.status >= 400) {
+          const err = result.body as { error?: string; stage?: string };
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({
+                type: "error",
+                error: err.error || "Pipeline failed",
+                stage: err.stage,
+              })}\n\n`
+            )
+          );
+        } else {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ type: "result", payload: result.body })}\n\n`
+            )
+          );
+        }
+      } catch (e) {
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({
+              type: "error",
+              error: (e as Error).message || "Pipeline failed",
+            })}\n\n`
+          )
+        );
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+    },
+  });
+}
+
+async function executePipeline(
+  req: NextRequest,
+  parsed: PipelineBody,
+  emit: Emit
+): Promise<{ status: number; body: unknown }> {
   if (rateLimited(clientIp(req))) {
-    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+    return { status: 429, body: { error: "Rate limit exceeded" } };
   }
   let stage = "init";
   try {
-    const { text, title } = (await req.json()) as {
-      text?: string;
-      title?: string;
-    };
+    const { text, title } = parsed;
     if (typeof text !== "string" || text.trim().length < 20) {
-      return NextResponse.json(
-        { error: "Please provide at least a few sentences of text." },
-        { status: 400 }
-      );
+      return {
+        status: 400,
+        body: { error: "Please provide at least a few sentences of text." },
+      };
     }
     if (text.length > 30000) {
-      return NextResponse.json(
-        { error: "Text is too long (max 30,000 characters)." },
-        { status: 400 }
-      );
+      return {
+        status: 400,
+        body: { error: "Text is too long (max 30,000 characters)." },
+      };
     }
 
     const cleanTitle =
@@ -66,6 +159,8 @@ export async function POST(req: NextRequest) {
     const agentCfg = await getAgentConfig().catch(() => DEFAULT_AGENT_CONFIG);
     const bands = bandCfgFromAgent(agentCfg);
 
+    emit({ type: "stage", id: "intake", state: "done" });
+    emit({ type: "stage", id: "guardrail", state: "running" });
     stage = "guardrail";
     const { guardrail, redacted, jev } = await jevGuardrail(text, origin);
     if (guardrail.block) {
@@ -99,18 +194,43 @@ export async function POST(req: NextRequest) {
           preset: agentCfg.preset,
         })
       );
-      return NextResponse.json({
-        blocked: true,
-        itemId,
-        guardrail,
-        jev: { model: jev.model, latencyMs: jev.latencyMs },
-        provenance: {
-          policy_version: agentCfg.version,
-          preset: agentCfg.preset,
-        },
+      emit({
+        type: "stage",
+        id: "guardrail",
+        state: "done",
+        detail: guardrail.reason,
       });
+      emit({
+        type: "stage",
+        id: "blocked",
+        state: "blocked",
+        detail: guardrail.reason,
+      });
+      for (const id of SKIP_AFTER_BLOCK) {
+        emit({ type: "stage", id, state: "skipped" });
+      }
+      return {
+        status: 200,
+        body: {
+          blocked: true,
+          itemId,
+          guardrail,
+          jev: { model: jev.model, latencyMs: jev.latencyMs },
+          provenance: {
+            policy_version: agentCfg.version,
+            preset: agentCfg.preset,
+          },
+        },
+      };
     }
 
+    emit({
+      type: "stage",
+      id: "guardrail",
+      state: "done",
+      detail: guardrail.reason,
+    });
+    emit({ type: "stage", id: "triage", state: "running" });
     stage = "triage";
     const triage = await jevClassify(redacted, origin, jev.full, jev.typesafe);
     const taxonomy = taxonomyFromTriage(
@@ -129,6 +249,13 @@ export async function POST(req: NextRequest) {
         : triage.category;
     void routeCategory;
 
+    emit({
+      type: "stage",
+      id: "triage",
+      state: "done",
+      detail: `${triage.category} · ${triage.urgency}`,
+    });
+    emit({ type: "stage", id: "router", state: "running" });
     stage = "router";
     const route = routeDecision(triage, {
       escalateNoul: jev.typesafe?.escalate.noul ?? null,
@@ -136,6 +263,29 @@ export async function POST(req: NextRequest) {
       fastPathMinConfidence: agentCfg.triage.fastPathMinConfidence,
       escalateConfidenceCeiling: agentCfg.triage.escalateConfidenceCeiling,
       routineCategories: agentCfg.router.routineCategories,
+    });
+
+    emit({
+      type: "stage",
+      id: "router",
+      state: "done",
+      detail: route.reason,
+    });
+    if (route.fastPath) {
+      emit({
+        type: "stage",
+        id: "fastpath",
+        state: "done",
+        detail: route.model,
+      });
+    } else {
+      emit({ type: "stage", id: "fastpath", state: "skipped" });
+    }
+    emit({
+      type: "stage",
+      id: "draft",
+      state: "running",
+      detail: route.fastPath ? "small model" : "full model",
     });
 
     const judgments: ItemJudgments = {};
@@ -235,7 +385,14 @@ export async function POST(req: NextRequest) {
       "memo.draft",
       route.fastPath ? "fast path (small model)" : "full analysis (large model)"
     );
+    emit({
+      type: "stage",
+      id: "draft",
+      state: "done",
+      detail: `${rawObs.length} obligation(s) · ${modelUsed}`,
+    });
 
+    emit({ type: "stage", id: "confidence", state: "running" });
     stage = "confidence";
     let confidence = await jevConfidence(
       memo,
@@ -255,6 +412,7 @@ export async function POST(req: NextRequest) {
       agentCfg,
       cascade,
       existingJudgments: judgments,
+      onStage: (id, state, detail) => emit({ type: "stage", id, state, detail }),
     });
     Object.assign(judgments, enhanced.judgments);
     confidence = applyConfidencePatch(confidence, enhanced.confidencePatch);
@@ -346,6 +504,13 @@ export async function POST(req: NextRequest) {
       `score=${confidence.score.toFixed(2)}: ${confidence.reasons.slice(0, 3).join("; ")}`
     );
 
+    emit({
+      type: "stage",
+      id: "confidence",
+      state: "done",
+      detail: confidence.score.toFixed(2),
+    });
+    emit({ type: "stage", id: "gate", state: "running" });
     stage = "gate";
     const gate = gateDecision(confidence.score, {
       autoApproveAbove: agentCfg.gate.autoApproveAbove,
@@ -358,6 +523,12 @@ export async function POST(req: NextRequest) {
       groundingNeedsReview: enhanced.confidencePatch.groundingNeedsReview,
     });
     await audit(itemId, "gate", `gate.${gate.status}`, gate.label);
+    emit({
+      type: "stage",
+      id: "gate",
+      state: "done",
+      detail: gate.label || gate.status,
+    });
 
     stage = "persist_results";
     for (const o of obligations) {
@@ -407,7 +578,9 @@ export async function POST(req: NextRequest) {
       })
     );
 
-    return NextResponse.json({
+    return {
+      status: 200,
+      body: {
       blocked: gate.status === "blocked",
       itemId,
       guardrail: {
@@ -441,7 +614,8 @@ export async function POST(req: NextRequest) {
         preset: agentCfg.preset,
         judgments,
       },
-    });
+      },
+    };
   } catch (e) {
     const msg = (e as Error).message || "unknown";
     console.error("[pipeline]", stage, msg);
@@ -449,12 +623,12 @@ export async function POST(req: NextRequest) {
       .replace(/sk-[a-zA-Z0-9]+/g, "[redacted]")
       .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
       .slice(0, 180);
-    return NextResponse.json(
-      {
+    return {
+      status: 500,
+      body: {
         error: `Pipeline failed at ${stage}. ${safe}`,
         stage,
       },
-      { status: 500 }
-    );
+    };
   }
 }

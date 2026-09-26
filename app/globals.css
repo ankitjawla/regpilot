@@ -449,6 +449,20 @@ body {
     rp-flow-node-pulse 1.45s ease-in-out;
 }
 
+.rp-flow-node.is-done {
+  border-color: color-mix(in srgb, var(--sage) 55%, var(--line));
+  background: color-mix(in srgb, var(--sage-soft) 65%, #fff);
+}
+
+.rp-flow-node.is-skipped {
+  opacity: 0.45;
+}
+
+.rp-flow-node.is-blocked {
+  border-color: color-mix(in srgb, var(--coral) 65%, var(--line));
+  background: color-mix(in srgb, var(--coral) 12%, #fff);
+}
+
 @keyframes rp-flow-node-enter {
   from {
     opacity: 0;

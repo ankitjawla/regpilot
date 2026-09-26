@@ -49,8 +49,28 @@ function runtimeTone(runtime: WorkflowStep["runtime"]) {
 
 export type WorkflowFlowNode = Node<WorkflowNodeData, "workflow">;
 
+function runStateClass(state: WorkflowNodeData["runState"]): string {
+  switch (state) {
+    case "running":
+      return "is-pulse";
+    case "done":
+      return "is-done";
+    case "skipped":
+      return "is-skipped";
+    case "blocked":
+      return "is-blocked";
+    case "pending":
+    case null:
+      return "";
+    default: {
+      const _exhaustive: never = state;
+      return _exhaustive;
+    }
+  }
+}
+
 export function WorkflowStepNode({ data }: NodeProps<WorkflowFlowNode>) {
-  const { step, index, ready, isLive, isActive } = data;
+  const { step, index, ready, isLive, isActive, runState } = data;
   const tone = runtimeTone(step.runtime);
   const contract = contractFor(step.id);
   const tip = `${contract.why}\n\nIn: ${contract.inputs[0] ?? "—"}\nOut: ${contract.outputs[0] ?? "—"}\nNext: ${contract.branches.map((b) => `${b.when} → ${b.goesTo}`).join("; ")}`;
@@ -58,7 +78,7 @@ export function WorkflowStepNode({ data }: NodeProps<WorkflowFlowNode>) {
   return (
     <div
       className={`rp-flow-node ${isActive ? "is-active" : ""} ${
-        isLive ? "is-pulse" : ""
+        runState ? runStateClass(runState) : isLive ? "is-pulse" : ""
       }`}
       title={tip}
       style={

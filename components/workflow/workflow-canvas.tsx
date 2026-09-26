@@ -18,6 +18,7 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import type { WorkflowStep } from "@/lib/agents";
+import type { StageState } from "@/lib/pipeline-events";
 import {
   buildWorkflowGraph,
   type FlowNode,
@@ -58,12 +59,14 @@ function WorkflowCanvasInner({
   activeId,
   liveId,
   runtimeReady,
+  stageStates,
   onSelect,
 }: {
   steps: WorkflowStep[];
   activeId: string | null;
   liveId: string | null;
   runtimeReady: (runtime: WorkflowStep["runtime"]) => boolean | null;
+  stageStates?: Record<string, StageState> | null;
   onSelect: (id: string) => void;
 }) {
   const { nodes: builtNodes, edges: builtEdges } = useMemo(
@@ -72,8 +75,9 @@ function WorkflowCanvasInner({
         activeId,
         liveId,
         runtimeReady,
+        stageStates,
       }),
-    [steps, activeId, liveId, runtimeReady]
+    [steps, activeId, liveId, runtimeReady, stageStates]
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([]);
@@ -155,6 +159,7 @@ export function WorkflowCanvas(props: {
   activeId: string | null;
   liveId: string | null;
   runtimeReady: (runtime: WorkflowStep["runtime"]) => boolean | null;
+  stageStates?: Record<string, StageState> | null;
   onSelect: (id: string) => void;
 }) {
   return (

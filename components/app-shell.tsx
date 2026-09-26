@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
+import { PipelineRunProvider } from "@/components/pipeline-run";
 
 const PRIMARY = [
   { href: "/", label: "Overview", hint: "Pipeline pulse" },
@@ -145,7 +146,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <main className="min-w-0 flex-1 px-4 py-5 md:px-8 md:py-7">
-        <div className="mx-auto max-w-7xl">{children}</div>
+        <div className="mx-auto max-w-7xl">
+          <PipelineRunProvider>{children}</PipelineRunProvider>
+        </div>
       </main>
     </div>
   );
