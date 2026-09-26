@@ -232,9 +232,17 @@ export async function POST(req: NextRequest) {
       status: gate.status,
     });
   } catch (e) {
-    console.error("[pipeline]", (e as Error).message);
+    const msg = (e as Error).message || "unknown error";
+    console.error("[pipeline]", msg);
+    const deploymentIssue =
+      msg.includes("DeploymentNotFound") ||
+      /Azure OpenAI request failed \(HTTP 404\)/.test(msg);
     return NextResponse.json(
-      { error: "Pipeline failed. Please try again." },
+      {
+        error: deploymentIssue
+          ? "Pipeline failed: Azure OpenAI deployment not found. Check AZURE_OPENAI_DEPLOYMENT / AZURE_OPENAI_SMALL_DEPLOYMENT."
+          : "Pipeline failed. Please try again.",
+      },
       { status: 500 }
     );
   }

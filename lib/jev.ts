@@ -4,6 +4,8 @@
 
 import {
   azureChat,
+  azureChatSmall,
+  azureChatResult,
   parseJson,
   smallDeployment,
   bigDeployment,
@@ -259,8 +261,7 @@ export async function jevGuardrail(
   let injectionSuspected = screen.hit;
   let modelNote = "";
   try {
-    const out = await azureChat({
-      deployment: smallDeployment(),
+    const { content: out } = await azureChatSmall({
       maxTokens: 300,
       json: true,
       messages: [
@@ -362,8 +363,7 @@ export async function jevClassify(
     // Fall through to the Azure small-deployment path below.
   }
 
-  const out = await azureChat({
-    deployment: smallDeployment(),
+  const { content: out, deploymentUsed } = await azureChatSmall({
     maxTokens: 500,
     json: true,
     messages: [
@@ -382,7 +382,7 @@ export async function jevClassify(
   });
   const t = parseJson<Triage>(out);
   t.confidence = Math.min(1, Math.max(0, Number(t.confidence) || 0));
-  return { ...t, jev: { model: smallModelLabel(), latencyMs: null } };
+  return { ...t, jev: { model: deploymentUsed, latencyMs: null } };
 }
 
 // ------------------------------------------------------------------- route
@@ -492,28 +492,36 @@ export async function draftMemo(
   obligations: Obligation[],
   fastPath: boolean
 ): Promise<{ memo: string; modelUsed: string }> {
-  const deployment = fastPath ? smallDeployment() : bigDeployment();
-  const out = await azureChat({
-    deployment,
+  const messages: ChatMsg[] = [
+    {
+      role: "system",
+      content:
+        "You are a regulatory compliance officer drafting an internal memo. Write a professional memo in Markdown " +
+        "with exactly these sections: ## Subject, ## Background, ## Key obligations, ## Recommended actions, ## Open questions. " +
+        "Be factual and concise. Never invent dates, regulation citations, or obligations not supported by the source text. " +
+        "Mark anything uncertain as an open question.",
+    },
+    {
+      role: "user",
+      content:
+        `Category: ${triage.category} | Jurisdiction: ${triage.jurisdiction} | Urgency: ${triage.urgency}\n` +
+        `Extracted obligations:\n${JSON.stringify(obligations, null, 1)}\n\nSource document:\n${truncate(redactedText)}`,
+    },
+  ];
+  // Fast path prefers the cheap slot; if missing (DeploymentNotFound), fall back to heavy.
+  if (fastPath) {
+    const { content, deploymentUsed } = await azureChatSmall({
+      maxTokens: 2000,
+      messages,
+    });
+    return { memo: content, modelUsed: deploymentUsed };
+  }
+  const { content, deploymentUsed } = await azureChatResult({
+    deployment: bigDeployment(),
     maxTokens: 2000,
-    messages: [
-      {
-        role: "system",
-        content:
-          "You are a regulatory compliance officer drafting an internal memo. Write a professional memo in Markdown " +
-          "with exactly these sections: ## Subject, ## Background, ## Key obligations, ## Recommended actions, ## Open questions. " +
-          "Be factual and concise. Never invent dates, regulation citations, or obligations not supported by the source text. " +
-          "Mark anything uncertain as an open question.",
-      },
-      {
-        role: "user",
-        content:
-          `Category: ${triage.category} | Jurisdiction: ${triage.jurisdiction} | Urgency: ${triage.urgency}\n` +
-          `Extracted obligations:\n${JSON.stringify(obligations, null, 1)}\n\nSource document:\n${truncate(redactedText)}`,
-      },
-    ],
+    messages,
   });
-  return { memo: out, modelUsed: deployment };
+  return { memo: content, modelUsed: deploymentUsed };
 }
 
 // --------------------------------------------------------------- confidence
@@ -585,8 +593,7 @@ export async function jevConfidence(
     // Fall through to the Azure small-deployment path below.
   }
 
-  const out = await azureChat({
-    deployment: smallDeployment(),
+  const { content: out, deploymentUsed } = await azureChatSmall({
     maxTokens: 500,
     json: true,
     messages: [
@@ -608,7 +615,7 @@ export async function jevConfidence(
   const c = parseJson<ConfidenceScore>(out);
   c.score = Math.min(1, Math.max(0, Number(c.score) || 0));
   if (!Array.isArray(c.reasons)) c.reasons = [];
-  return { ...c, model: smallModelLabel() };
+  return { ...c, model: deploymentUsed || smallModelLabel() };
 }
 
 // -------------------------------------------------------------------- gate

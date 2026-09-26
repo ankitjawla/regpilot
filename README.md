@@ -71,7 +71,7 @@ memo drafting. Fast-path memo drafting uses the small Azure deployment when set.
 | `AZURE_OPENAI_ENDPOINT` | e.g. `https://<resource>.cognitiveservices.azure.com` |
 | `AZURE_OPENAI_API_VERSION` | e.g. `2024-12-01-preview` |
 | `AZURE_OPENAI_DEPLOYMENT` | heavy model (`gpt-5.4`) |
-| `AZURE_OPENAI_SMALL_DEPLOYMENT` | cheap model for fast-path drafting (optional) |
+| `AZURE_OPENAI_SMALL_DEPLOYMENT` | cheap model for fast-path drafting (optional; falls back to `AZURE_OPENAI_DEPLOYMENT` if missing) |
 | `DATABASE_URL` | Neon Postgres (tables self-create on first use) |
 
 Never commit `.env*` — `.gitignore` covers them. Copy `.env.example` to `.env.local`.
