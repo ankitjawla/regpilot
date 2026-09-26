@@ -12,6 +12,8 @@ import { typesafeConfigured, typesafeGroundObligations } from "@/lib/typesafe";
 import { bigDeployment } from "@/lib/azure";
 import { query, audit } from "@/lib/db";
 import { rateLimited, clientIp } from "@/lib/ratelimit";
+import { getAgentConfig } from "@/lib/agent-store";
+import { DEFAULT_AGENT_CONFIG } from "@/lib/agents";
 
 /**
  * One-shot intake: guardrail → triage → route → obligations → memo →
@@ -61,9 +63,14 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    const agentCfg = await getAgentConfig().catch(() => DEFAULT_AGENT_CONFIG);
     const triage = await jevClassify(redacted, origin, jev.full, jev.typesafe);
     const route = routeDecision(triage, {
       escalateNoul: jev.typesafe?.escalate.noul ?? null,
+      escalateFullPathThreshold: agentCfg.triage.escalateFullPathThreshold,
+      fastPathMinConfidence: agentCfg.triage.fastPathMinConfidence,
+      escalateConfidenceCeiling: agentCfg.triage.escalateConfidenceCeiling,
+      routineCategories: agentCfg.router.routineCategories,
     });
 
     const rows = await query<{ id: number }>(
@@ -114,7 +121,11 @@ export async function POST(req: NextRequest) {
     const confidence = await jevConfidence(memo, obligations, triage, origin);
 
     let grounding = null;
-    if (typesafeConfigured() && obligations.length > 0) {
+    if (
+      agentCfg.grounding.enabled &&
+      typesafeConfigured() &&
+      obligations.length > 0
+    ) {
       try {
         const g = await typesafeGroundObligations({
           source: redacted,
@@ -130,7 +141,8 @@ export async function POST(req: NextRequest) {
           latencyMs: g.latencyMs,
         };
         const softFail =
-          g.overallSupported < 0.55 || g.inventedClaims > 0.55;
+          g.overallSupported < agentCfg.grounding.supportThreshold ||
+          g.inventedClaims > agentCfg.grounding.inventedThreshold;
         await audit(
           itemId,
           g.model,
@@ -171,7 +183,10 @@ export async function POST(req: NextRequest) {
       `score=${confidence.score.toFixed(2)}: ${confidence.reasons.slice(0, 3).join("; ")}`
     );
 
-    const gate = gateDecision(confidence.score);
+    const gate = gateDecision(confidence.score, {
+      autoApproveAbove: agentCfg.gate.autoApproveAbove,
+      humanConfirmAbove: agentCfg.gate.humanConfirmAbove,
+    });
     await audit(itemId, "gate", `gate.${gate.status}`, gate.label);
 
     for (const o of obligations) {

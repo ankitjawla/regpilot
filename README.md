@@ -95,12 +95,13 @@ no manual migration step:
 - `GET /api/export?item_id=&format=json|md` — downloadable examiner package
 - `GET /api/review` — review queue · `POST /api/review` — `{itemId|itemIds, decision, note?}` approve / request changes (bulk up to 50)
 - `GET /api/audit` — filterable audit log (`?actor=&q=&item_id=`)
-- `GET /api/samples` — the five fictional samples
+- `GET /api/samples` — fictional samples (CCAR, Dodd-Frank, COREP, FINREP, Call Report, BSA/AML, …)
+- `GET /api/agents` · `PUT /api/agents` — editable agent policy (thresholds / labels); `POST {reset:true}` restores defaults
 - `GET /api/stats` — dashboard numbers (incl. grounding soft-fail count)
 - `GET /api/jevmeta` — TypeSafe + local model metadata
 - `GET /api/health` — readiness (TypeSafe / Azure / DB configured; no secrets)
 
-UI: `/items/[id]` examiner package · Review queue filters/search/bulk · Overview auto-refresh (30s) with deep links.
+UI: `/items/[id]` examiner package · `/workflow` live map of real implementations · `/agents` edit policy · Review filters/bulk · Overview auto-refresh.
 
 ## Develop
 

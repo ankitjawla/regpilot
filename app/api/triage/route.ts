@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { jevGuardrail, jevClassify, routeDecision } from "@/lib/jev";
 import { query, audit } from "@/lib/db";
 import { rateLimited, clientIp } from "@/lib/ratelimit";
+import { getAgentConfig } from "@/lib/agent-store";
+import { DEFAULT_AGENT_CONFIG } from "@/lib/agents";
 
 export async function POST(req: NextRequest) {
   if (rateLimited(clientIp(req))) {
@@ -58,8 +60,13 @@ export async function POST(req: NextRequest) {
       jev.full,
       jev.typesafe
     );
+    const agentCfg = await getAgentConfig().catch(() => DEFAULT_AGENT_CONFIG);
     const route = routeDecision(triage, {
       escalateNoul: jev.typesafe?.escalate.noul ?? null,
+      escalateFullPathThreshold: agentCfg.triage.escalateFullPathThreshold,
+      fastPathMinConfidence: agentCfg.triage.fastPathMinConfidence,
+      escalateConfidenceCeiling: agentCfg.triage.escalateConfidenceCeiling,
+      routineCategories: agentCfg.router.routineCategories,
     });
 
     const rows = await query<{ id: number }>(
