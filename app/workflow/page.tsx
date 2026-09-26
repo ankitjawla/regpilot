@@ -1,42 +1,33 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import {
-  Card,
-  SectionTitle,
-  Badge,
-  PageHeader,
-} from "@/components/ui";
+import { PageHeader, Badge } from "@/components/ui";
 import type { AgentConfig, WorkflowStep } from "@/lib/agents";
+import { WorkflowCanvas } from "@/components/workflow/workflow-canvas";
+import { WorkflowDetailSheet } from "@/components/workflow/workflow-detail";
 
 type Health = {
   ok?: boolean;
   services?: {
     typesafe?: { configured?: boolean; model?: string };
-    azureOpenAI?: { configured?: boolean; deployment?: string; smallDeployment?: string };
+    azureOpenAI?: {
+      configured?: boolean;
+      deployment?: string;
+      smallDeployment?: string;
+    };
     database?: { configured?: boolean };
   };
-};
-
-const RUNTIME_COLOR: Record<
-  WorkflowStep["runtime"],
-  "green" | "blue" | "slate" | "amber" | "red"
-> = {
-  typesafe: "green",
-  azure: "blue",
-  rules: "slate",
-  human: "amber",
-  ui: "slate",
 };
 
 export default function WorkflowPage() {
   const [steps, setSteps] = useState<WorkflowStep[]>([]);
   const [config, setConfig] = useState<AgentConfig | null>(null);
   const [health, setHealth] = useState<Health | null>(null);
-  const [active, setActive] = useState(0);
-  const [liveId, setLiveId] = useState<number | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [liveId, setLiveId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,9 +37,11 @@ export default function WorkflowPage() {
     ])
       .then(([agents, h]) => {
         if (cancelled) return;
-        setSteps(agents.workflow || []);
+        const workflow: WorkflowStep[] = agents.workflow || [];
+        setSteps(workflow);
         setConfig(agents.config);
         setHealth(h);
+        if (workflow[0]) setActiveId(workflow[0].id);
       })
       .catch(() => {
         if (!cancelled) setError("Could not load workflow catalog.");
@@ -58,35 +51,55 @@ export default function WorkflowPage() {
     };
   }, []);
 
-  // Pulse animation along the pipeline to show “live” flow.
+  // Pulse travels the real path along WORKFLOW_STEPS order.
   useEffect(() => {
     if (!steps.length) return;
     const id = window.setInterval(() => {
       setLiveId((prev) => {
-        const next = prev == null ? 0 : prev + 1;
-        return next >= steps.length ? 0 : next;
+        if (prev == null) return steps[0]?.id ?? null;
+        const idx = steps.findIndex((s) => s.id === prev);
+        const next = idx < 0 ? 0 : (idx + 1) % steps.length;
+        return steps[next]?.id ?? null;
       });
     }, 1600);
     return () => window.clearInterval(id);
-  }, [steps.length]);
+  }, [steps]);
 
-  const step = steps[active];
+  const activeStep = useMemo(
+    () => steps.find((s) => s.id === activeId) ?? null,
+    [steps, activeId]
+  );
 
-  const agentForStep = useMemo(() => {
-    if (!config || !step?.agentKey) return null;
-    return config[step.agentKey];
-  }, [config, step]);
+  const activeIndex = useMemo(
+    () => (activeStep ? steps.findIndex((s) => s.id === activeStep.id) : -1),
+    [steps, activeStep]
+  );
 
-  function runtimeReady(runtime: WorkflowStep["runtime"]): boolean | null {
-    if (!health) return null;
-    if (runtime === "typesafe")
-      return Boolean(health.services?.typesafe?.configured);
-    if (runtime === "azure")
-      return Boolean(health.services?.azureOpenAI?.configured);
-    if (runtime === "rules" || runtime === "ui" || runtime === "human")
-      return Boolean(health.services?.database?.configured ?? true);
-    return null;
-  }
+  const runtimeReady = useCallback(
+    (runtime: WorkflowStep["runtime"]): boolean | null => {
+      if (!health) return null;
+      switch (runtime) {
+        case "typesafe":
+          return Boolean(health.services?.typesafe?.configured);
+        case "azure":
+          return Boolean(health.services?.azureOpenAI?.configured);
+        case "rules":
+        case "ui":
+        case "human":
+          return Boolean(health.services?.database?.configured ?? true);
+        default: {
+          const _exhaustive: never = runtime;
+          return _exhaustive;
+        }
+      }
+    },
+    [health]
+  );
+
+  const onSelect = useCallback((id: string) => {
+    setActiveId(id);
+    setSheetOpen(true);
+  }, []);
 
   return (
     <div>
@@ -112,257 +125,106 @@ export default function WorkflowPage() {
       />
 
       {error && (
-        <Card className="mb-4 border-[var(--coral)]/30 text-sm text-[var(--coral)]">
+        <div className="mb-4 rounded-[var(--radius)] border border-[var(--coral)]/30 bg-white p-4 text-sm text-[var(--coral)]">
           {error}
-        </Card>
+        </div>
       )}
 
-      <section className="mb-5 grid gap-3 sm:grid-cols-3">
-        <Card>
-          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-mute)]">
-            TypeSafe System One
+      <section className="rp-flow-stage">
+        <div className="rp-flow-stage-head">
+          <div>
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-mute)]">
+              Pipeline
+            </div>
+            <h2 className="font-display text-xl font-semibold tracking-[-0.02em] text-[var(--ink)]">
+              Live flow
+            </h2>
+            <p className="mt-1 max-w-xl text-xs text-[var(--ink-mute)]">
+              Pulse travels the real path. Pan and zoom the canvas; click a node
+              for implementation details and current agent policy.
+            </p>
           </div>
-          <div className="mt-1 flex items-center gap-2">
-            <Badge
-              color={health?.services?.typesafe?.configured ? "green" : "amber"}
-            >
-              {health?.services?.typesafe?.configured ? "live" : "offline"}
-            </Badge>
-            <span className="font-mono text-xs text-[var(--ink-mute)]">
-              {health?.services?.typesafe?.model || "—"}
-            </span>
+          <div className="rp-flow-status-row" aria-label="Service health">
+            <StatusChip
+              label="TypeSafe"
+              live={Boolean(health?.services?.typesafe?.configured)}
+              detail={health?.services?.typesafe?.model || "—"}
+            />
+            <StatusChip
+              label="Azure"
+              live={Boolean(health?.services?.azureOpenAI?.configured)}
+              detail={health?.services?.azureOpenAI?.deployment || "—"}
+            />
+            <StatusChip
+              label="Neon"
+              live={Boolean(health?.services?.database?.configured)}
+              detail="regpilot_*"
+            />
           </div>
-          <p className="mt-2 text-xs text-[var(--ink-mute)]">
-            Guardrail · triage · grounding · confidence
-          </p>
-        </Card>
-        <Card>
-          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-mute)]">
-            Azure OpenAI
+        </div>
+
+        <div
+          className={`rp-flow-body ${sheetOpen && activeStep ? "has-sheet" : ""}`}
+        >
+          <div className="rp-flow-viewport">
+            {steps.length > 0 ? (
+              <WorkflowCanvas
+                steps={steps}
+                activeId={activeId}
+                liveId={liveId}
+                runtimeReady={runtimeReady}
+                onSelect={onSelect}
+              />
+            ) : (
+              !error && (
+                <div className="flex h-full items-center justify-center text-sm text-[var(--ink-mute)]">
+                  Loading pipeline…
+                </div>
+              )
+            )}
           </div>
-          <div className="mt-1 flex items-center gap-2">
-            <Badge
-              color={
-                health?.services?.azureOpenAI?.configured ? "blue" : "amber"
-              }
-            >
-              {health?.services?.azureOpenAI?.configured ? "live" : "offline"}
-            </Badge>
-            <span className="font-mono text-xs text-[var(--ink-mute)]">
-              {health?.services?.azureOpenAI?.deployment || "—"}
-            </span>
-          </div>
-          <p className="mt-2 text-xs text-[var(--ink-mute)]">
-            Obligations JSON · memo draft (fast/full path)
-          </p>
-        </Card>
-        <Card>
-          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-mute)]">
-            Neon audit ledger
-          </div>
-          <div className="mt-1 flex items-center gap-2">
-            <Badge
-              color={health?.services?.database?.configured ? "green" : "amber"}
-            >
-              {health?.services?.database?.configured ? "live" : "offline"}
-            </Badge>
-            <span className="font-mono text-xs text-[var(--ink-mute)]">
-              regpilot_*
-            </span>
-          </div>
-          <p className="mt-2 text-xs text-[var(--ink-mute)]">
-            Items · obligations · drafts · audit · agent config
-          </p>
-        </Card>
+
+          {sheetOpen && activeStep && (
+            <WorkflowDetailSheet
+              step={activeStep}
+              index={activeIndex}
+              config={config}
+              ready={runtimeReady(activeStep.runtime)}
+              onClose={() => setSheetOpen(false)}
+            />
+          )}
+        </div>
       </section>
 
-      <Card className="mb-5 overflow-hidden">
-        <SectionTitle eyebrow="Pipeline">Live flow</SectionTitle>
-        <p className="mb-4 text-xs text-[var(--ink-mute)]">
-          Pulse travels the real path. Click a node for implementation details and
-          current agent policy.
-        </p>
-        <div className="rp-workflow-track">
-          {steps.map((s, i) => {
-            const ready = runtimeReady(s.runtime);
-            const isLive = liveId === i;
-            const isActive = active === i;
-            return (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => setActive(i)}
-                className={`rp-workflow-node ${isActive ? "is-active" : ""} ${
-                  isLive ? "is-pulse" : ""
-                }`}
-              >
-                <span className="rp-workflow-index">{i + 1}</span>
-                <span className="rp-workflow-title">{s.title}</span>
-                <span className="rp-workflow-meta">
-                  <Badge color={RUNTIME_COLOR[s.runtime]}>{s.runtime}</Badge>
-                  {ready != null && (
-                    <span
-                      className={`ml-1 inline-block h-1.5 w-1.5 rounded-full ${
-                        ready ? "bg-[var(--sage)]" : "bg-[var(--amber)]"
-                      }`}
-                    />
-                  )}
-                </span>
-                {i < steps.length - 1 && (
-                  <span className="rp-workflow-arrow" aria-hidden>
-                    →
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </Card>
+      <p className="mt-4 text-xs leading-relaxed text-[var(--ink-mute)]">
+        Sequence: intake → guardrail → triage → router → draft → TypeSafe
+        enrichment cluster → gate → human review → examiner export. Calibration /
+        eval is a side spur from the gate (no production write).
+      </p>
+    </div>
+  );
+}
 
-      {step && (
-        <div className="grid gap-4 lg:grid-cols-12">
-          <Card className="lg:col-span-7">
-            <SectionTitle eyebrow={`Step ${active + 1}`}>{step.title}</SectionTitle>
-            <p className="mt-1 text-sm leading-relaxed text-[var(--ink-2)]">
-              {step.role}
-            </p>
-            <div className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--paper-2)] p-3">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-mute)]">
-                Real implementation
-              </div>
-              <code className="mt-1 block whitespace-pre-wrap font-mono text-xs leading-relaxed text-[var(--ink)]">
-                {step.implementation}
-              </code>
-            </div>
-            <div className="mt-3">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-mute)]">
-                APIs
-              </div>
-              <ul className="mt-1.5 flex flex-wrap gap-1.5">
-                {step.apis.map((a) => (
-                  <li key={a}>
-                    <Badge color="slate">{a}</Badge>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </Card>
-
-          <Card className="lg:col-span-5">
-            <SectionTitle eyebrow="Policy">
-              {agentForStep ? agentForStep.label : "Operator step"}
-            </SectionTitle>
-            {agentForStep ? (
-              <>
-                <p className="text-sm text-[var(--ink-2)]">
-                  {agentForStep.description}
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Badge color={agentForStep.enabled ? "green" : "amber"}>
-                    {agentForStep.enabled ? "enabled" : "disabled"}
-                  </Badge>
-                  {step.agentKey === "guardrail" && (
-                    <Badge color="slate">
-                      inject ≥ {config!.guardrail.injectionBlockThreshold.toFixed(2)}
-                    </Badge>
-                  )}
-                  {step.agentKey === "triage" && (
-                    <Badge color="slate">
-                      escalate ≥{" "}
-                      {config!.triage.escalateFullPathThreshold.toFixed(2)}
-                    </Badge>
-                  )}
-                  {step.agentKey === "grounding" && (
-                    <Badge color="slate">
-                      support &lt; {config!.grounding.supportThreshold.toFixed(2)}
-                    </Badge>
-                  )}
-                  {step.agentKey === "gate" && (
-                    <Badge color="slate">
-                      auto &gt; {config!.gate.autoApproveAbove.toFixed(2)}
-                    </Badge>
-                  )}
-                </div>
-                <Link
-                  href="/agents"
-                  className="mt-4 inline-block text-xs font-semibold text-[var(--sky)] hover:underline"
-                >
-                  Edit this agent →
-                </Link>
-              </>
-            ) : (
-              <>
-                <p className="text-sm text-[var(--ink-2)]">
-                  {step.id === "intake" &&
-                    "Load a CCAR, COREP, FINREP, Call Report, or Dodd-Frank sample and run the full pipeline."}
-                  {step.id === "human" &&
-                    "Review queue supports filters, bulk approve, and re-analyze against the same agents."}
-                  {step.id === "export" &&
-                    "Examiner packages include memo, obligations, grounding, redacted source, and audit trail."}
-                </p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {step.id === "intake" && (
-                    <Link
-                      href="/intake"
-                      className="rounded-lg bg-[var(--sage)] px-3 py-2 text-xs font-semibold text-white"
-                    >
-                      Go to intake
-                    </Link>
-                  )}
-                  {step.id === "human" && (
-                    <Link
-                      href="/review"
-                      className="rounded-lg bg-[var(--sage)] px-3 py-2 text-xs font-semibold text-white"
-                    >
-                      Go to review
-                    </Link>
-                  )}
-                  {step.id === "export" && (
-                    <Link
-                      href="/"
-                      className="rounded-lg bg-[var(--ink)] px-3 py-2 text-xs font-semibold text-white"
-                    >
-                      Open overview
-                    </Link>
-                  )}
-                </div>
-              </>
-            )}
-          </Card>
-        </div>
-      )}
-
-      <Card className="mt-5">
-        <SectionTitle eyebrow="Sequence">How a real request moves</SectionTitle>
-        <ol className="mt-3 space-y-2 text-sm text-[var(--ink-2)]">
-          <li>
-            1. Operator submits text →{" "}
-            <code className="font-mono text-xs">POST /api/pipeline</code> (or
-            triage then analyze).
-          </li>
-          <li>
-            2.{" "}
-            <code className="font-mono text-xs">jevGuardrail</code> redacts PII,
-            TypeSafe scores injection noul against the Agents threshold.
-          </li>
-          <li>
-            3.{" "}
-            <code className="font-mono text-xs">jevClassify</code> +{" "}
-            <code className="font-mono text-xs">routeDecision</code> pick fast vs
-            full path using escalate / confidence policy.
-          </li>
-          <li>
-            4. Azure extracts obligations and drafts the memo; TypeSafe grounds
-            claims and scores confidence.
-          </li>
-          <li>
-            5.{" "}
-            <code className="font-mono text-xs">gateDecision</code> writes status
-            to Neon; humans clear via Review or{" "}
-            <code className="font-mono text-xs">/items/[id]</code>.
-          </li>
-        </ol>
-      </Card>
+function StatusChip({
+  label,
+  live,
+  detail,
+}: {
+  label: string;
+  live: boolean;
+  detail: string;
+}) {
+  return (
+    <div className="rp-flow-chip">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--ink-mute)]">
+        {label}
+      </span>
+      <span className="mt-0.5 flex items-center gap-1.5">
+        <Badge color={live ? "green" : "amber"}>{live ? "live" : "offline"}</Badge>
+        <span className="font-mono text-[10px] text-[var(--ink-mute)]">
+          {detail}
+        </span>
+      </span>
     </div>
   );
 }
