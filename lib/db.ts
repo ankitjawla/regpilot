@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS regpilot_items(
   confidence DOUBLE PRECISION,
   fast_path BOOLEAN DEFAULT FALSE,
   status TEXT NOT NULL DEFAULT 'triaged',
+  policy_version INTEGER,
+  preset TEXT,
+  judgments JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE TABLE IF NOT EXISTS regpilot_obligations(
@@ -70,10 +73,18 @@ CREATE TABLE IF NOT EXISTS regpilot_custom_samples(
 );
 `;
 
+/** Idempotent column adds for examiner provenance (policy + judgments ledger). */
+const SCHEMA_MIGRATIONS = `
+ALTER TABLE regpilot_items ADD COLUMN IF NOT EXISTS policy_version INTEGER;
+ALTER TABLE regpilot_items ADD COLUMN IF NOT EXISTS preset TEXT;
+ALTER TABLE regpilot_items ADD COLUMN IF NOT EXISTS judgments JSONB;
+`;
+
 function ensureSchema(): Promise<void> {
   if (!schemaReady) {
     schemaReady = (async () => {
       await getPool().query(SCHEMA);
+      await getPool().query(SCHEMA_MIGRATIONS);
     })().catch((e) => {
       schemaReady = null; // retry next time
       throw e;

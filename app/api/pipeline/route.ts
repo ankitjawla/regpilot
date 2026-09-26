@@ -17,6 +17,12 @@ import {
   DEFAULT_AGENT_CONFIG,
   resolveMemoSystemPrompt,
 } from "@/lib/agents";
+import {
+  triageJudgmentsFromTypesafe,
+  groundingJudgmentsFromResult,
+  confidenceJudgmentsFromScore,
+  type ItemJudgments,
+} from "@/lib/provenance";
 
 export const maxDuration = 120;
 
@@ -56,18 +62,41 @@ export async function POST(req: NextRequest) {
     stage = "guardrail";
     const { guardrail, redacted, jev } = await jevGuardrail(text, origin);
     if (guardrail.block) {
+      const blockedJudgments: ItemJudgments | null = jev.typesafe
+        ? { triage: triageJudgmentsFromTypesafe(jev.typesafe) }
+        : null;
       const rows = await query<{ id: number }>(
-        `INSERT INTO regpilot_items(title, source_text_redacted, status)
-         VALUES ($1,$2,'blocked') RETURNING id`,
-        [cleanTitle, redacted]
+        `INSERT INTO regpilot_items
+           (title, source_text_redacted, status, policy_version, preset, judgments)
+         VALUES ($1,$2,'blocked',$3,$4,$5) RETURNING id`,
+        [
+          cleanTitle,
+          redacted,
+          agentCfg.version,
+          agentCfg.preset,
+          blockedJudgments ? JSON.stringify(blockedJudgments) : null,
+        ]
       );
       const itemId = rows[0].id;
       await audit(itemId, jev.model, "guardrail.block", guardrail.reason);
+      await audit(
+        itemId,
+        "policy",
+        "policy.stamp",
+        JSON.stringify({
+          policy_version: agentCfg.version,
+          preset: agentCfg.preset,
+        })
+      );
       return NextResponse.json({
         blocked: true,
         itemId,
         guardrail,
         jev: { model: jev.model, latencyMs: jev.latencyMs },
+        provenance: {
+          policy_version: agentCfg.version,
+          preset: agentCfg.preset,
+        },
       });
     }
 
@@ -82,11 +111,16 @@ export async function POST(req: NextRequest) {
       routineCategories: agentCfg.router.routineCategories,
     });
 
+    const judgments: ItemJudgments = {};
+    if (jev.typesafe) {
+      judgments.triage = triageJudgmentsFromTypesafe(jev.typesafe);
+    }
+
     stage = "persist";
     const rows = await query<{ id: number }>(
       `INSERT INTO regpilot_items
-         (title, source_text_redacted, category, urgency, jurisdiction, confidence, fast_path, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'triaged') RETURNING id`,
+         (title, source_text_redacted, category, urgency, jurisdiction, confidence, fast_path, status, policy_version, preset, judgments)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'triaged',$8,$9,$10) RETURNING id`,
       [
         cleanTitle,
         redacted,
@@ -95,6 +129,9 @@ export async function POST(req: NextRequest) {
         triage.jurisdiction,
         triage.confidence,
         route.fastPath,
+        agentCfg.version,
+        agentCfg.preset,
+        Object.keys(judgments).length ? JSON.stringify(judgments) : null,
       ]
     );
     const itemId = rows[0].id;
@@ -110,6 +147,16 @@ export async function POST(req: NextRequest) {
       "router",
       route.fastPath ? "route.fast_path" : "route.full_analysis",
       route.reason
+    );
+    await audit(
+      itemId,
+      "policy",
+      "policy.stamp",
+      JSON.stringify({
+        policy_version: agentCfg.version,
+        preset: agentCfg.preset,
+        hasTriageJudgments: Boolean(judgments.triage),
+      })
     );
 
     stage = "obligations";
@@ -157,17 +204,19 @@ export async function POST(req: NextRequest) {
           obligations,
           memo,
         });
+        const softFail =
+          g.overallSupported < agentCfg.grounding.supportThreshold ||
+          g.inventedClaims > agentCfg.grounding.inventedThreshold;
+        judgments.grounding = groundingJudgmentsFromResult(g, softFail);
         grounding = {
           model: g.model,
           overallSupported: g.overallSupported,
           inventedClaims: g.inventedClaims,
           unsupportedCount: g.unsupportedCount,
           obligations: g.obligations,
+          softFail,
           latencyMs: g.latencyMs,
         };
-        const softFail =
-          g.overallSupported < agentCfg.grounding.supportThreshold ||
-          g.inventedClaims > agentCfg.grounding.inventedThreshold;
         await audit(
           itemId,
           g.model,
@@ -200,6 +249,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    judgments.confidence = confidenceJudgmentsFromScore({
+      ...confidence,
+      model: confidence.model,
+    });
+
     await audit(
       itemId,
       confidence.model,
@@ -227,8 +281,28 @@ export async function POST(req: NextRequest) {
       [itemId, memo, modelUsed]
     );
     await query(
-      `UPDATE regpilot_items SET confidence=$2, status=$3 WHERE id=$1`,
-      [itemId, confidence.score, gate.status]
+      `UPDATE regpilot_items
+       SET confidence=$2, status=$3, policy_version=$4, preset=$5, judgments=$6
+       WHERE id=$1`,
+      [
+        itemId,
+        confidence.score,
+        gate.status,
+        agentCfg.version,
+        agentCfg.preset,
+        JSON.stringify(judgments),
+      ]
+    );
+    await audit(
+      itemId,
+      "policy",
+      "policy.stamp",
+      JSON.stringify({
+        policy_version: agentCfg.version,
+        preset: agentCfg.preset,
+        hasGrounding: Boolean(judgments.grounding),
+        hasConfidence: Boolean(judgments.confidence),
+      })
     );
 
     return NextResponse.json({
@@ -257,6 +331,11 @@ export async function POST(req: NextRequest) {
       gate,
       status: gate.status,
       preset: agentCfg.preset,
+      provenance: {
+        policy_version: agentCfg.version,
+        preset: agentCfg.preset,
+        judgments,
+      },
     });
   } catch (e) {
     const msg = (e as Error).message || "unknown";

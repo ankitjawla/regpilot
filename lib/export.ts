@@ -1,5 +1,7 @@
 // Examiner export package — memo + obligations + triage + audit in one artifact.
 
+import type { ItemJudgments } from "./provenance";
+
 export type ExportItem = {
   id: number;
   title: string;
@@ -11,6 +13,8 @@ export type ExportItem = {
   status: string;
   source_text_redacted: string;
   created_at: string;
+  policy_version?: number | null;
+  preset?: string | null;
 };
 
 export type ExportObligation = {
@@ -25,6 +29,12 @@ export type ExportAudit = {
   action: string;
   detail: string | null;
   created_at: string;
+};
+
+export type ExportProvenance = {
+  policy_version: number | null;
+  preset: string | null;
+  judgments: ItemJudgments | null;
 };
 
 export type ExportPackage = {
@@ -42,13 +52,19 @@ export type ExportPackage = {
     softFail?: boolean;
     details?: string;
   } | null;
+  provenance?: ExportProvenance | null;
 };
+
+function fmtNoul(n: number | undefined | null): string {
+  return n != null && Number.isFinite(n) ? n.toFixed(2) : "—";
+}
 
 export function buildExportMarkdown(
   pkg: ExportPackage,
   opts?: { titlePrefix?: string; footer?: string; orgName?: string }
 ): string {
-  const { item, obligations, memo, modelUsed, audit, grounding } = pkg;
+  const { item, obligations, memo, modelUsed, audit, grounding, provenance } =
+    pkg;
   const prefix = opts?.titlePrefix || "RegPilot examiner package";
   const org = opts?.orgName || "RegPilot";
   const footer =
@@ -71,9 +87,61 @@ export function buildExportMarkdown(
     `- **Path:** ${item.fast_path ? "fast" : "full"}`,
     `- **Created:** ${item.created_at}`,
     ``,
-    `## Obligations`,
-    ``,
   ];
+
+  const policyVersion =
+    provenance?.policy_version ?? item.policy_version ?? null;
+  const preset = provenance?.preset ?? item.preset ?? null;
+  const judgments = provenance?.judgments ?? null;
+
+  if (policyVersion != null || preset || judgments) {
+    lines.push(`## Policy + System One judgments`, ``);
+    lines.push(`- **Preset:** ${preset || "—"}`);
+    lines.push(
+      `- **Policy version:** ${policyVersion != null ? `v${policyVersion}` : "—"}`
+    );
+    if (judgments?.triage) {
+      const t = judgments.triage;
+      lines.push(
+        `- **Injection noul:** ${fmtNoul(t.injectionNoul)}`,
+        `- **Escalate noul:** ${fmtNoul(t.escalateNoul)}`,
+        `- **Category:** ${t.category?.choice || "—"} (conf ${fmtNoul(t.category?.confidence)})`,
+        `- **Urgency:** ${t.urgency?.choice || "—"} (conf ${fmtNoul(t.urgency?.confidence)})`,
+        `- **Jurisdiction:** ${t.jurisdiction?.choice || "—"} (conf ${fmtNoul(t.jurisdiction?.confidence)})`
+      );
+      if (t.model) lines.push(`- **Triage model:** ${t.model}`);
+    }
+    if (judgments?.confidence) {
+      lines.push(
+        `- **Confidence score:** ${fmtNoul(judgments.confidence.score)}`
+      );
+      if (judgments.confidence.reasons?.length) {
+        lines.push(
+          `- **Confidence reasons:** ${judgments.confidence.reasons.join("; ")}`
+        );
+      }
+    }
+    if (judgments?.grounding) {
+      const g = judgments.grounding;
+      lines.push(
+        `- **Grounding overall supported:** ${fmtNoul(g.overallSupported)}`,
+        `- **Invented claims noul:** ${fmtNoul(g.inventedClaims)}`,
+        `- **Unsupported obligations:** ${g.unsupportedCount}`,
+        `- **Grounding soft-fail:** ${g.softFail ? "yes" : "no"}`
+      );
+      if (g.obligations?.length) {
+        lines.push(``, `### Per-obligation grounding`, ``);
+        for (const o of g.obligations) {
+          lines.push(
+            `- **#${o.index + 1} ${o.owner}** — supported noul ${fmtNoul(o.supportedNoul)} (${o.supported ? "ok" : "weak"}): ${o.action}`
+          );
+        }
+      }
+    }
+    lines.push(``);
+  }
+
+  lines.push(`## Obligations`, ``);
 
   if (!obligations.length) {
     lines.push("_No obligations extracted._", ``);

@@ -15,8 +15,12 @@ export async function GET() {
       status: string;
       created_at: string;
       obligation_count: string;
+      grounding_soft_fail: boolean | null;
     }>(
-      `SELECT i.*, COUNT(o.id) AS obligation_count
+      `SELECT i.id, i.title, i.category, i.urgency, i.jurisdiction, i.confidence,
+              i.fast_path, i.status, i.created_at,
+              COUNT(o.id) AS obligation_count,
+              COALESCE((i.judgments->'grounding'->>'softFail')::boolean, false) AS grounding_soft_fail
        FROM regpilot_items i
        LEFT JOIN regpilot_obligations o ON o.item_id = i.id
        WHERE i.status IN ('pending_review','needs_work')

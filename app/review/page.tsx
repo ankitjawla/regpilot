@@ -24,6 +24,7 @@ type QueueItem = {
   status: string;
   created_at: string;
   obligation_count: string;
+  grounding_soft_fail?: boolean | null;
 };
 
 type Detail = {
@@ -287,6 +288,9 @@ export default function ReviewQueue() {
                         <Badge color="blue">{it.category}</Badge>
                         <UrgencyBadge urgency={it.urgency} />
                         <ConfidenceBadge score={it.confidence} />
+                        {it.grounding_soft_fail && (
+                          <Badge color="amber">grounding</Badge>
+                        )}
                       </div>
                     </button>
                   </div>
