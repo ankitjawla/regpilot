@@ -13,6 +13,7 @@ import {
 import {
   PIPELINE_STAGE_IDS,
   isPipelineStageId,
+  stagesFromPayload,
   type PipelineResultPayload,
   type PipelineStageId,
   type PipelineStreamMessage,
@@ -38,6 +39,8 @@ export type PipelineRun = {
   blocked?: boolean;
   fastPath?: boolean;
   stages: StageRecord[];
+  /** How many SSE stage events were applied. Zero means the body was one JSON result. */
+  stageEvents?: number;
   result?: PipelineResultPayload | null;
   error?: string;
 };
@@ -63,24 +66,31 @@ function applyStage(run: PipelineRun, event: PipelineStreamMessage): PipelineRun
   const stages = run.stages.map((s) =>
     s.id === event.id ? { ...s, state: event.state, detail: event.detail } : s
   );
-  return { ...run, stages };
+  return { ...run, stages, stageEvents: (run.stageEvents ?? 0) + 1 };
 }
 
+/**
+ * Prefer live SSE states. If none arrived, rebuild the trail from the result
+ * so a JSON response cannot paint every later block as skipped.
+ */
 function finishFromPayload(run: PipelineRun, payload: PipelineResultPayload): PipelineRun {
   const blocked = Boolean(payload.blocked);
-  const stages = run.stages.map((s) => {
-    if (s.state === "running") return { ...s, state: "done" as const };
-    if (s.state === "pending" && s.id !== "blocked") {
-      return { ...s, state: "skipped" as const };
-    }
-    if (s.id === "blocked" && blocked && s.state === "pending") {
-      return { ...s, state: "blocked" as const };
-    }
-    if (s.id === "blocked" && !blocked && s.state === "pending") {
-      return { ...s, state: "skipped" as const };
-    }
-    return s;
-  });
+  const derived = stagesFromPayload(payload);
+  const sawEvents = (run.stageEvents ?? 0) > 0;
+  const stages: StageRecord[] = sawEvents
+    ? run.stages.map((s) => {
+        const next = derived.find((d) => d.id === s.id);
+        if (!next) return s;
+        if (s.state === "pending" || s.state === "running") {
+          return {
+            id: s.id,
+            state: next.state,
+            detail: s.detail || next.detail,
+          };
+        }
+        return { ...s, detail: s.detail || next.detail };
+      })
+    : derived;
   return {
     ...run,
     status: "done",
@@ -92,6 +102,15 @@ function finishFromPayload(run: PipelineRun, payload: PipelineResultPayload): Pi
     stages,
     error: undefined,
   };
+}
+
+/** Repair a stored run whose graph was saved before stage events were applied. */
+function healRun(run: PipelineRun): PipelineRun {
+  if (run.status !== "done" || !run.result || (run.stageEvents ?? 0) > 0) return run;
+  const triage = run.stages.find((s) => s.id === "triage");
+  const lied = Boolean(run.result.triage) && triage?.state === "skipped";
+  if (!lied) return run;
+  return { ...run, stages: stagesFromPayload(run.result) };
 }
 
 function readStored(): PipelineRun | null {
@@ -113,7 +132,7 @@ function readStored(): PipelineRun | null {
         ),
       };
     }
-    return parsed;
+    return healRun(parsed);
   } catch {
     return null;
   }

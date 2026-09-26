@@ -9,6 +9,8 @@ export type WorkflowNodeData = {
   isLive: boolean;
   isActive: boolean;
   runState: StageState | null;
+  /** What this block decided on the live run, when a session is open. */
+  runDetail: string | null;
   [key: string]: unknown;
 };
 
@@ -352,6 +354,7 @@ export function buildWorkflowGraph(
     liveId: string | null;
     runtimeReady: (runtime: WorkflowStep["runtime"]) => boolean | null;
     stageStates?: Record<string, StageState> | null;
+    stageDetails?: Record<string, string> | null;
   }
 ): { nodes: FlowNode[]; edges: Edge[] } {
   const byId = new Map(steps.map((s, i) => [s.id, { step: s, index: i }]));
@@ -371,6 +374,7 @@ export function buildWorkflowGraph(
         isLive: opts.stageStates ? runState === "running" : opts.liveId === id,
         isActive: opts.activeId === id,
         runState,
+        runDetail: opts.stageDetails?.[id] ?? null,
       },
       style: { width: NODE_W, height: NODE_H },
     };
@@ -389,6 +393,7 @@ export function buildWorkflowGraph(
         isLive: opts.stageStates ? runState === "running" : opts.liveId === step.id,
         isActive: opts.activeId === step.id,
         runState,
+        runDetail: opts.stageDetails?.[step.id] ?? null,
       },
       style: { width: NODE_W, height: NODE_H },
     };

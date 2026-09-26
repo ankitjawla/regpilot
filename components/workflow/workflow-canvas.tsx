@@ -60,6 +60,7 @@ function WorkflowCanvasInner({
   liveId,
   runtimeReady,
   stageStates,
+  stageDetails,
   onSelect,
 }: {
   steps: WorkflowStep[];
@@ -67,6 +68,7 @@ function WorkflowCanvasInner({
   liveId: string | null;
   runtimeReady: (runtime: WorkflowStep["runtime"]) => boolean | null;
   stageStates?: Record<string, StageState> | null;
+  stageDetails?: Record<string, string> | null;
   onSelect: (id: string) => void;
 }) {
   const { nodes: builtNodes, edges: builtEdges } = useMemo(
@@ -76,8 +78,9 @@ function WorkflowCanvasInner({
         liveId,
         runtimeReady,
         stageStates,
+        stageDetails,
       }),
-    [steps, activeId, liveId, runtimeReady, stageStates]
+    [steps, activeId, liveId, runtimeReady, stageStates, stageDetails]
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([]);
@@ -160,6 +163,7 @@ export function WorkflowCanvas(props: {
   liveId: string | null;
   runtimeReady: (runtime: WorkflowStep["runtime"]) => boolean | null;
   stageStates?: Record<string, StageState> | null;
+  stageDetails?: Record<string, string> | null;
   onSelect: (id: string) => void;
 }) {
   return (
