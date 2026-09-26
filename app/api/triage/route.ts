@@ -4,6 +4,10 @@ import { query, audit } from "@/lib/db";
 import { rateLimited, clientIp } from "@/lib/ratelimit";
 import { getAgentConfig } from "@/lib/agent-store";
 import { DEFAULT_AGENT_CONFIG } from "@/lib/agents";
+import {
+  triageJudgmentsFromTypesafe,
+  type ItemJudgments,
+} from "@/lib/provenance";
 
 export async function POST(req: NextRequest) {
   if (rateLimited(clientIp(req))) {
@@ -37,19 +41,44 @@ export async function POST(req: NextRequest) {
     //     before ANY model sees the text)
     const { guardrail, redacted, jev } = await jevGuardrail(text, origin);
 
+    const agentCfg = await getAgentConfig().catch(() => DEFAULT_AGENT_CONFIG);
+
     if (guardrail.block) {
+      const blockedJudgments: ItemJudgments | null = jev.typesafe
+        ? { triage: triageJudgmentsFromTypesafe(jev.typesafe) }
+        : null;
       const rows = await query<{ id: number }>(
-        `INSERT INTO regpilot_items(title, source_text_redacted, status)
-         VALUES ($1,$2,'blocked') RETURNING id`,
-        [cleanTitle, redacted]
+        `INSERT INTO regpilot_items
+           (title, source_text_redacted, status, policy_version, preset, judgments)
+         VALUES ($1,$2,'blocked',$3,$4,$5) RETURNING id`,
+        [
+          cleanTitle,
+          redacted,
+          agentCfg.version,
+          agentCfg.preset,
+          blockedJudgments ? JSON.stringify(blockedJudgments) : null,
+        ]
       );
       const itemId = rows[0].id;
       await audit(itemId, jev.model, "guardrail.block", guardrail.reason);
+      await audit(
+        itemId,
+        "policy",
+        "policy.stamp",
+        JSON.stringify({
+          policy_version: agentCfg.version,
+          preset: agentCfg.preset,
+        })
+      );
       return NextResponse.json({
         blocked: true,
         itemId,
         guardrail,
         jev: { model: jev.model, latencyMs: jev.latencyMs },
+        provenance: {
+          policy_version: agentCfg.version,
+          preset: agentCfg.preset,
+        },
       });
     }
 
@@ -60,7 +89,6 @@ export async function POST(req: NextRequest) {
       jev.full,
       jev.typesafe
     );
-    const agentCfg = await getAgentConfig().catch(() => DEFAULT_AGENT_CONFIG);
     const route = routeDecision(triage, {
       escalateNoul: jev.typesafe?.escalate.noul ?? null,
       escalateFullPathThreshold: agentCfg.triage.escalateFullPathThreshold,
@@ -69,10 +97,14 @@ export async function POST(req: NextRequest) {
       routineCategories: agentCfg.router.routineCategories,
     });
 
+    const judgments: ItemJudgments | null = jev.typesafe
+      ? { triage: triageJudgmentsFromTypesafe(jev.typesafe) }
+      : null;
+
     const rows = await query<{ id: number }>(
       `INSERT INTO regpilot_items
-         (title, source_text_redacted, category, urgency, jurisdiction, confidence, fast_path, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'triaged') RETURNING id`,
+         (title, source_text_redacted, category, urgency, jurisdiction, confidence, fast_path, status, policy_version, preset, judgments)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'triaged',$8,$9,$10) RETURNING id`,
       [
         cleanTitle,
         redacted,
@@ -81,6 +113,9 @@ export async function POST(req: NextRequest) {
         triage.jurisdiction,
         triage.confidence,
         route.fastPath,
+        agentCfg.version,
+        agentCfg.preset,
+        judgments ? JSON.stringify(judgments) : null,
       ]
     );
     const itemId = rows[0].id;
@@ -93,26 +128,24 @@ export async function POST(req: NextRequest) {
       route.fastPath ? "route.fast_path" : "route.full_analysis",
       route.reason
     );
+    await audit(
+      itemId,
+      "policy",
+      "policy.stamp",
+      JSON.stringify({
+        policy_version: agentCfg.version,
+        preset: agentCfg.preset,
+        hasTriageJudgments: Boolean(judgments?.triage),
+      })
+    );
 
-    const decisions = jev.typesafe
+    const decisions = judgments?.triage
       ? {
-          injectionNoul: jev.typesafe.injection.noul,
-          escalateNoul: jev.typesafe.escalate.noul,
-          category: {
-            choice: jev.typesafe.category.choice,
-            confidence: jev.typesafe.category.confidence,
-            probabilities: jev.typesafe.category.probabilities,
-          },
-          urgency: {
-            choice: jev.typesafe.urgency.choice,
-            confidence: jev.typesafe.urgency.confidence,
-            probabilities: jev.typesafe.urgency.probabilities,
-          },
-          jurisdiction: {
-            choice: jev.typesafe.jurisdiction.choice,
-            confidence: jev.typesafe.jurisdiction.confidence,
-            probabilities: jev.typesafe.jurisdiction.probabilities,
-          },
+          injectionNoul: judgments.triage.injectionNoul,
+          escalateNoul: judgments.triage.escalateNoul,
+          category: judgments.triage.category,
+          urgency: judgments.triage.urgency,
+          jurisdiction: judgments.triage.jurisdiction,
         }
       : null;
 
@@ -133,6 +166,11 @@ export async function POST(req: NextRequest) {
         rationale: triage.rationale,
       },
       decisions,
+      provenance: {
+        policy_version: agentCfg.version,
+        preset: agentCfg.preset,
+        judgments,
+      },
       jev: { model: triage.jev.model, latencyMs: triage.jev.latencyMs },
       route: { fastPath: route.fastPath, model: route.model, reason: route.reason },
     });

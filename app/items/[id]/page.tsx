@@ -34,13 +34,49 @@ type Detail = {
   }[];
   memo: string;
   modelUsed: string;
-  confidence: { score: number | null; note: string };
+  confidence: { score: number | null; note: string; reasons?: string[] };
   grounding: {
     model?: string;
     overallSupported?: number;
     inventedClaims?: number;
     unsupportedCount?: number;
+    softFail?: boolean;
     details?: string;
+    obligations?: {
+      index: number;
+      owner: string;
+      action: string;
+      supportedNoul: number;
+      supported: boolean;
+    }[];
+  } | null;
+  provenance?: {
+    policy_version: number | null;
+    preset: string | null;
+    judgments: {
+      triage?: {
+        model?: string;
+        injectionNoul?: number;
+        escalateNoul?: number;
+        category?: { choice: string; confidence: number };
+        urgency?: { choice: string; confidence: number };
+        jurisdiction?: { choice: string; confidence: number };
+      };
+      grounding?: {
+        overallSupported: number;
+        inventedClaims: number;
+        unsupportedCount: number;
+        softFail?: boolean;
+        obligations?: {
+          index: number;
+          owner: string;
+          action: string;
+          supportedNoul: number;
+          supported: boolean;
+        }[];
+      };
+      confidence?: { score: number; reasons: string[]; model?: string };
+    } | null;
   } | null;
   playbook?: {
     id: string;
@@ -195,6 +231,15 @@ export default function ItemDetail({
           {item.fast_path ? "fast path" : "full path"}
         </Badge>
         {data.modelUsed && <Badge color="slate">draft · {data.modelUsed}</Badge>}
+        {data.provenance?.preset && (
+          <Badge color="slate">preset · {data.provenance.preset}</Badge>
+        )}
+        {data.provenance?.policy_version != null && (
+          <Badge color="slate">policy v{data.provenance.policy_version}</Badge>
+        )}
+        {data.grounding?.softFail && (
+          <Badge color="amber">grounding soft-fail</Badge>
+        )}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-12">
@@ -246,6 +291,108 @@ export default function ItemDetail({
                   <li key={i}>{step}</li>
                 ))}
               </ol>
+            </Card>
+          )}
+
+          {(data.provenance?.policy_version != null ||
+            data.provenance?.preset ||
+            data.provenance?.judgments) && (
+            <Card>
+              <SectionTitle eyebrow="Provenance">
+                Policy + System One
+              </SectionTitle>
+              <div className="mb-3 flex flex-wrap gap-2">
+                {data.provenance?.preset && (
+                  <Badge color="blue">{data.provenance.preset}</Badge>
+                )}
+                {data.provenance?.policy_version != null && (
+                  <Badge color="slate">
+                    config v{data.provenance.policy_version}
+                  </Badge>
+                )}
+              </div>
+              {data.provenance?.judgments?.triage && (
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div className="rounded-xl bg-[var(--paper-2)] p-3">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-mute)]">
+                      Injection noul
+                    </div>
+                    <div className="font-display text-xl font-semibold">
+                      {data.provenance.judgments.triage.injectionNoul != null
+                        ? data.provenance.judgments.triage.injectionNoul.toFixed(
+                            2
+                          )
+                        : "—"}
+                    </div>
+                  </div>
+                  <div className="rounded-xl bg-[var(--paper-2)] p-3">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-mute)]">
+                      Escalate noul
+                    </div>
+                    <div className="font-display text-xl font-semibold">
+                      {data.provenance.judgments.triage.escalateNoul != null
+                        ? data.provenance.judgments.triage.escalateNoul.toFixed(
+                            2
+                          )
+                        : "—"}
+                    </div>
+                  </div>
+                  <div className="col-span-2 space-y-1 rounded-xl bg-[var(--paper-2)] p-3 text-xs text-[var(--ink-2)]">
+                    <div>
+                      Category{" "}
+                      <span className="font-semibold">
+                        {data.provenance.judgments.triage.category?.choice ||
+                          "—"}
+                      </span>
+                      {data.provenance.judgments.triage.category?.confidence !=
+                        null &&
+                        ` · ${data.provenance.judgments.triage.category.confidence.toFixed(2)}`}
+                    </div>
+                    <div>
+                      Urgency{" "}
+                      <span className="font-semibold">
+                        {data.provenance.judgments.triage.urgency?.choice || "—"}
+                      </span>
+                      {data.provenance.judgments.triage.urgency?.confidence !=
+                        null &&
+                        ` · ${data.provenance.judgments.triage.urgency.confidence.toFixed(2)}`}
+                    </div>
+                    <div>
+                      Jurisdiction{" "}
+                      <span className="font-semibold">
+                        {data.provenance.judgments.triage.jurisdiction
+                          ?.choice || "—"}
+                      </span>
+                      {data.provenance.judgments.triage.jurisdiction
+                        ?.confidence != null &&
+                        ` · ${data.provenance.judgments.triage.jurisdiction.confidence.toFixed(2)}`}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {(data.provenance?.judgments?.grounding?.obligations?.length ||
+                0) > 0 && (
+                <ul className="mt-3 space-y-1.5 text-xs text-[var(--ink-2)]">
+                  <li className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-mute)]">
+                    Per-obligation grounding
+                  </li>
+                  {data.provenance!.judgments!.grounding!.obligations!.map(
+                    (o) => (
+                      <li
+                        key={o.index}
+                        className="flex items-start justify-between gap-2 border-b border-[var(--line)]/60 pb-1 last:border-0"
+                      >
+                        <span className="min-w-0 truncate">
+                          {o.owner}: {o.action}
+                        </span>
+                        <Badge color={o.supported ? "green" : "amber"}>
+                          {o.supportedNoul.toFixed(2)}
+                        </Badge>
+                      </li>
+                    )
+                  )}
+                </ul>
+              )}
             </Card>
           )}
 

@@ -14,6 +14,13 @@ import {
   DEFAULT_AGENT_CONFIG,
   resolveMemoSystemPrompt,
 } from "@/lib/agents";
+import {
+  groundingJudgmentsFromResult,
+  confidenceJudgmentsFromScore,
+  mergeJudgments,
+  parseJudgments,
+  type ItemJudgments,
+} from "@/lib/provenance";
 
 export const maxDuration = 120;
 
@@ -36,6 +43,7 @@ export async function POST(req: NextRequest) {
       confidence: number;
       fast_path: boolean;
       status: string;
+      judgments: unknown;
     }>(`SELECT * FROM regpilot_items WHERE id=$1`, [itemId]);
     const item = items[0];
     if (!item) return NextResponse.json({ error: "Item not found" }, { status: 404 });
@@ -55,6 +63,7 @@ export async function POST(req: NextRequest) {
     } as Parameters<typeof extractObligations>[1];
 
     const agentCfg = await getAgentConfig().catch(() => DEFAULT_AGENT_CONFIG);
+    let judgments: ItemJudgments = parseJudgments(item.judgments) || {};
 
     const obligations = agentCfg.draft.enabled
       ? await extractObligations(item.source_text_redacted, triage, {
@@ -96,17 +105,21 @@ export async function POST(req: NextRequest) {
           obligations,
           memo,
         });
+        const softFail =
+          g.overallSupported < agentCfg.grounding.supportThreshold ||
+          g.inventedClaims > agentCfg.grounding.inventedThreshold;
+        judgments = mergeJudgments(judgments, {
+          grounding: groundingJudgmentsFromResult(g, softFail),
+        });
         grounding = {
           model: g.model,
           overallSupported: g.overallSupported,
           inventedClaims: g.inventedClaims,
           unsupportedCount: g.unsupportedCount,
           obligations: g.obligations,
+          softFail,
           latencyMs: g.latencyMs,
         };
-        const softFail =
-          g.overallSupported < agentCfg.grounding.supportThreshold ||
-          g.inventedClaims > agentCfg.grounding.inventedThreshold;
         await audit(
           itemId,
           g.model,
@@ -139,6 +152,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    judgments = mergeJudgments(judgments, {
+      confidence: confidenceJudgmentsFromScore({
+        ...confidence,
+        model: confidence.model,
+      }),
+    });
+
     await audit(
       itemId,
       confidence.model,
@@ -166,8 +186,28 @@ export async function POST(req: NextRequest) {
       [itemId, memo, modelUsed]
     );
     await query(
-      `UPDATE regpilot_items SET confidence=$2, status=$3 WHERE id=$1`,
-      [itemId, confidence.score, gate.status]
+      `UPDATE regpilot_items
+       SET confidence=$2, status=$3, policy_version=$4, preset=$5, judgments=$6
+       WHERE id=$1`,
+      [
+        itemId,
+        confidence.score,
+        gate.status,
+        agentCfg.version,
+        agentCfg.preset,
+        JSON.stringify(judgments),
+      ]
+    );
+    await audit(
+      itemId,
+      "policy",
+      "policy.stamp",
+      JSON.stringify({
+        policy_version: agentCfg.version,
+        preset: agentCfg.preset,
+        hasGrounding: Boolean(judgments.grounding),
+        hasConfidence: Boolean(judgments.confidence),
+      })
     );
 
     return NextResponse.json({
@@ -179,6 +219,11 @@ export async function POST(req: NextRequest) {
       grounding,
       gate,
       status: gate.status,
+      provenance: {
+        policy_version: agentCfg.version,
+        preset: agentCfg.preset,
+        judgments,
+      },
     });
   } catch (e) {
     console.error("[analyze]", (e as Error).message);

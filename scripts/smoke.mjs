@@ -126,13 +126,29 @@ async function main() {
     assert(detail.status === 200, `detail HTTP ${detail.status}`);
     assert(detail.json.item?.id === json.itemId, "detail item id");
     assert(Array.isArray(detail.json.obligations), "detail obligations");
-    pass("detail package");
+    assert(
+      detail.json.provenance?.policy_version != null ||
+        detail.json.provenance?.judgments,
+      "detail provenance policy_version or judgments"
+    );
+    pass(
+      `detail package policy_v=${detail.json.provenance?.policy_version} preset=${detail.json.provenance?.preset}`
+    );
 
     const exp = await req("GET", `/api/export?item_id=${json.itemId}&format=json`);
     assert(exp.status === 200, `export HTTP ${exp.status}`);
     assert(exp.json.item?.id === json.itemId, "export item");
     assert(typeof exp.json.memo === "string", "export memo");
-    pass("export json");
+    assert(
+      exp.json.policy_version != null ||
+        exp.json.provenance?.policy_version != null ||
+        exp.json.judgments ||
+        exp.json.provenance?.judgments,
+      "export provenance policy_version or judgments"
+    );
+    pass(
+      `export json policy_v=${exp.json.policy_version ?? exp.json.provenance?.policy_version}`
+    );
 
     const rev = await req("POST", "/api/review", {
       itemId: json.itemId,
@@ -158,7 +174,22 @@ async function main() {
     assert(json.itemId, "pipeline itemId");
     assert((json.memo || "").length > 40, "pipeline memo");
     assert(typeof json.confidence?.score === "number", "pipeline confidence");
-    pass(`pipeline item=${json.itemId} score=${json.confidence.score.toFixed(2)} ${ms}ms`);
+    assert(
+      json.provenance?.policy_version != null || json.provenance?.judgments,
+      "pipeline provenance"
+    );
+    pass(
+      `pipeline item=${json.itemId} score=${json.confidence.score.toFixed(2)} policy_v=${json.provenance?.policy_version} ${ms}ms`
+    );
+
+    const pipeDetail = await req("GET", `/api/detail?item_id=${json.itemId}`);
+    assert(pipeDetail.status === 200, `pipeline detail HTTP ${pipeDetail.status}`);
+    assert(
+      pipeDetail.json.provenance?.policy_version != null ||
+        pipeDetail.json.provenance?.judgments,
+      "pipeline detail provenance"
+    );
+    pass("pipeline detail provenance");
 
     if (approvedItemId) {
       const bulk = await req("POST", "/api/review", {
