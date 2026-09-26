@@ -5,6 +5,7 @@ import { Badge, SectionTitle } from "@/components/ui";
 import type { AgentConfig, WorkflowStep } from "@/lib/agents";
 import { AGENT_PLAIN, type AgentKeyForPrimer } from "@/lib/jev-primer";
 import { contractFor } from "@/lib/workflow-contracts";
+import type { StageState } from "@/lib/pipeline-events";
 
 const RUNTIME_COLOR: Record<
   WorkflowStep["runtime"],
@@ -16,6 +17,25 @@ const RUNTIME_COLOR: Record<
   human: "amber",
   ui: "slate",
 };
+
+function runStateLabel(state: StageState): string {
+  switch (state) {
+    case "pending":
+      return "Waiting";
+    case "running":
+      return "Running";
+    case "done":
+      return "Finished";
+    case "skipped":
+      return "Skipped on this path";
+    case "blocked":
+      return "Blocked";
+    default: {
+      const _exhaustive: never = state;
+      return _exhaustive;
+    }
+  }
+}
 
 function runtimeColor(runtime: WorkflowStep["runtime"]) {
   switch (runtime) {
@@ -37,12 +57,16 @@ export function WorkflowDetailSheet({
   index,
   config,
   ready,
+  runState,
+  runDetail,
   onClose,
 }: {
   step: WorkflowStep;
   index: number;
   config: AgentConfig | null;
   ready: boolean | null;
+  runState?: StageState | null;
+  runDetail?: string | null;
   onClose: () => void;
 }) {
   const agentForStep =
@@ -72,6 +96,18 @@ export function WorkflowDetailSheet({
       </div>
 
       <p className="text-sm leading-relaxed text-[var(--ink-2)]">{step.role}</p>
+
+      {runState && runState !== "pending" && (
+        <div className="mt-3 rounded-xl border border-[var(--ink)]/10 bg-[var(--paper-2)] p-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-mute)]">
+            This run
+          </div>
+          <p className="mt-1 text-sm font-medium leading-relaxed text-[var(--ink)]">
+            {runStateLabel(runState)}
+            {runDetail ? ` — ${runDetail}` : ""}
+          </p>
+        </div>
+      )}
 
       <div className="mt-3 rounded-xl border border-[var(--sage)]/25 bg-[var(--sage-soft)]/40 p-3">
         <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-mute)]">

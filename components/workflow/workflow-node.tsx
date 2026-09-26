@@ -70,7 +70,7 @@ function runStateClass(state: WorkflowNodeData["runState"]): string {
 }
 
 export function WorkflowStepNode({ data }: NodeProps<WorkflowFlowNode>) {
-  const { step, index, ready, isLive, isActive, runState } = data;
+  const { step, index, ready, isLive, isActive, runState, runDetail } = data;
   const tone = runtimeTone(step.runtime);
   const contract = contractFor(step.id);
   const tip = `${contract.why}\n\nIn: ${contract.inputs[0] ?? "—"}\nOut: ${contract.outputs[0] ?? "—"}\nNext: ${contract.branches.map((b) => `${b.when} → ${b.goesTo}`).join("; ")}`;
@@ -114,7 +114,13 @@ export function WorkflowStepNode({ data }: NodeProps<WorkflowFlowNode>) {
       <span className="rp-flow-node-index">{String(index + 1).padStart(2, "0")}</span>
       <span className="rp-flow-node-title">{step.title}</span>
       <span className="rp-flow-node-meta">
-        <span className={`rp-flow-badge ${tone.badge}`}>{step.runtime}</span>
+        {runDetail ? (
+          <span className="rp-flow-node-outcome" title={runDetail}>
+            {runDetail}
+          </span>
+        ) : (
+          <span className={`rp-flow-badge ${tone.badge}`}>{step.runtime}</span>
+        )}
         {ready != null && (
           <span
             className={`rp-flow-ready ${ready ? "is-ready" : "is-warn"}`}

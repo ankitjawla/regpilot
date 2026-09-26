@@ -36,12 +36,18 @@ export default function WorkflowPage() {
   const [error, setError] = useState("");
   const [sheetOpen, setSheetOpen] = useState(false);
   const { run, clearRun } = usePipelineRun();
-  const stageStates = useMemo(() => {
-    if (!run) return null;
-    const map: Record<string, StageState> = {};
-    for (const stage of run.stages) map[stage.id] = stage.state;
-    return map;
+  const stageView = useMemo(() => {
+    if (!run) return { states: null, details: null };
+    const states: Record<string, StageState> = {};
+    const details: Record<string, string> = {};
+    for (const stage of run.stages) {
+      states[stage.id] = stage.state;
+      if (stage.detail) details[stage.id] = stage.detail;
+    }
+    return { states, details };
   }, [run]);
+  const stageStates = stageView.states;
+  const stageDetails = stageView.details;
 
   useEffect(() => {
     let cancelled = false;
@@ -269,6 +275,7 @@ export default function WorkflowPage() {
                 activeId={activeId}
                 liveId={run ? null : liveId}
                 stageStates={stageStates}
+                stageDetails={stageDetails}
                 runtimeReady={runtimeReady}
                 onSelect={onSelect}
               />
@@ -287,6 +294,12 @@ export default function WorkflowPage() {
               index={activeIndex}
               config={config}
               ready={runtimeReady(activeStep.runtime)}
+              runState={
+                activeStep ? (stageStates?.[activeStep.id] ?? null) : null
+              }
+              runDetail={
+                activeStep ? (stageDetails?.[activeStep.id] ?? null) : null
+              }
               onClose={() => setSheetOpen(false)}
             />
           )}

@@ -339,7 +339,9 @@ export default function Intake() {
                 }`}
                 title={s.detail || s.state}
               >
-                {s.id}
+                {s.detail && (s.state === "done" || s.state === "blocked")
+                  ? `${s.id} · ${s.detail.length > 42 ? `${s.detail.slice(0, 41)}…` : s.detail}`
+                  : s.id}
               </li>
             ))}
           </ol>
