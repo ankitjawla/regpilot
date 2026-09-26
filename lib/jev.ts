@@ -17,6 +17,8 @@ import {
   typesafeConfidence,
   type TypesafeTriageAnswers,
 } from "./typesafe";
+import { getAgentConfig } from "./agent-store";
+import { DEFAULT_AGENT_CONFIG } from "./agents";
 
 export type Triage = {
   category:
@@ -61,8 +63,9 @@ export type ConfidenceScore = {
 
 const MAX_INPUT = 6000;
 
-/** Block when System One injection noul exceeds this probability. */
-const INJECTION_BLOCK_THRESHOLD = 0.55;
+/** Default block threshold; overridden by operator agent config at runtime. */
+const INJECTION_BLOCK_THRESHOLD =
+  DEFAULT_AGENT_CONFIG.guardrail.injectionBlockThreshold;
 
 function truncate(s: string, n = MAX_INPUT) {
   return s.length > n ? s.slice(0, n) + "\n[…truncated]" : s;
@@ -178,13 +181,17 @@ export async function jevGuardrail(
   redacted: string;
   jev: JevInfo & { full: JevLocalFull | null; typesafe: TypesafeFull | null };
 }> {
+  const agentCfg = await getAgentConfig().catch(() => DEFAULT_AGENT_CONFIG);
+  const injectionBlockThreshold =
+    agentCfg.guardrail.injectionBlockThreshold ?? INJECTION_BLOCK_THRESHOLD;
+
   // PRIMARY: TypeSafe System One (Jev) — typed injection judgment + triage batch.
   if (typesafeConfigured()) {
     try {
       const t = await typesafeFull(rawText);
       const screen = injectionScreen(t.redacted);
       const injectionSuspected =
-        t.injection.noul >= INJECTION_BLOCK_THRESHOLD || screen.hit;
+        t.injection.noul >= injectionBlockThreshold || screen.hit;
       const block = injectionSuspected;
       const reason = block
         ? `Blocked: suspected prompt injection (TypeSafe ${t.model}, injection noul ${t.injection.noul.toFixed(2)}${screen.hit ? ", regex hit" : ""})`
@@ -382,13 +389,29 @@ export async function jevClassify(
 export type RouteDecision = { fastPath: boolean; reason: string; model: string };
 
 /** Escalate to full analysis when System One escalate noul is at/above this. */
-const ESCALATE_FULL_PATH_THRESHOLD = 0.75;
+const ESCALATE_FULL_PATH_THRESHOLD =
+  DEFAULT_AGENT_CONFIG.triage.escalateFullPathThreshold;
 
 export function routeDecision(
   t: Triage,
-  opts?: { escalateNoul?: number | null }
+  opts?: {
+    escalateNoul?: number | null;
+    escalateFullPathThreshold?: number;
+    fastPathMinConfidence?: number;
+    escalateConfidenceCeiling?: number;
+    routineCategories?: string[];
+  }
 ): RouteDecision {
-  const routine = ["Consumer Compliance", "Other", "Operational Risk"];
+  const escalateThreshold =
+    opts?.escalateFullPathThreshold ?? ESCALATE_FULL_PATH_THRESHOLD;
+  const fastPathMin =
+    opts?.fastPathMinConfidence ??
+    DEFAULT_AGENT_CONFIG.triage.fastPathMinConfidence;
+  const escalateCeiling =
+    opts?.escalateConfidenceCeiling ??
+    DEFAULT_AGENT_CONFIG.triage.escalateConfidenceCeiling;
+  const routine =
+    opts?.routineCategories ?? DEFAULT_AGENT_CONFIG.router.routineCategories;
   const isRoutine = routine.includes(t.category);
   if (t.urgency === "critical") {
     return {
@@ -402,16 +425,16 @@ export function routeDecision(
   // items stay on the fast path (confidence-gated routing).
   if (
     typeof opts?.escalateNoul === "number" &&
-    opts.escalateNoul >= ESCALATE_FULL_PATH_THRESHOLD &&
-    (!isRoutine || t.confidence < 0.85)
+    opts.escalateNoul >= escalateThreshold &&
+    (!isRoutine || t.confidence < escalateCeiling)
   ) {
     return {
       fastPath: false,
       model: bigDeployment(),
-      reason: `TypeSafe escalate noul ${opts.escalateNoul.toFixed(2)} ≥ ${ESCALATE_FULL_PATH_THRESHOLD} with ${t.category} conf ${t.confidence.toFixed(2)} — full analysis on the large model`,
+      reason: `TypeSafe escalate noul ${opts.escalateNoul.toFixed(2)} ≥ ${escalateThreshold} with ${t.category} conf ${t.confidence.toFixed(2)} — full analysis on the large model`,
     };
   }
-  if (t.confidence >= 0.8 && isRoutine) {
+  if (t.confidence >= fastPathMin && isRoutine) {
     const small = smallDeployment();
     const big = bigDeployment();
     const same = small === big;
@@ -596,19 +619,29 @@ export type GateStatus =
   | "blocked"
   | "triaged";
 
-export function gateDecision(score: number): {
+export function gateDecision(
+  score: number,
+  opts?: { autoApproveAbove?: number; humanConfirmAbove?: number }
+): {
   status: "auto_approved" | "pending_review" | "needs_work";
   label: string;
 } {
-  if (score > 0.9)
-    return { status: "auto_approved", label: "Auto-approved — confidence above 0.90" };
-  if (score >= 0.5)
+  const autoAbove =
+    opts?.autoApproveAbove ?? DEFAULT_AGENT_CONFIG.gate.autoApproveAbove;
+  const humanAbove =
+    opts?.humanConfirmAbove ?? DEFAULT_AGENT_CONFIG.gate.humanConfirmAbove;
+  if (score > autoAbove)
+    return {
+      status: "auto_approved",
+      label: `Auto-approved — confidence above ${autoAbove.toFixed(2)}`,
+    };
+  if (score >= humanAbove)
     return {
       status: "pending_review",
-      label: "Needs human confirm — confidence 0.50–0.90",
+      label: `Needs human confirm — confidence ${humanAbove.toFixed(2)}–${autoAbove.toFixed(2)}`,
     };
   return {
     status: "needs_work",
-    label: "Human review required — confidence below 0.50",
+    label: `Human review required — confidence below ${humanAbove.toFixed(2)}`,
   };
 }

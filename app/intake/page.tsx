@@ -5,7 +5,14 @@ import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import { Card, SectionTitle, Badge, StatusBadge, ConfidenceBadge, UrgencyBadge, PageHeader } from "@/components/ui";
 
-type Sample = { id: string; title: string; label: string; preview: string; text: string };
+type Sample = {
+  id: string;
+  title: string;
+  label: string;
+  framework?: string;
+  preview: string;
+  text: string;
+};
 
 type TriageResult = {
   blocked: boolean;
@@ -48,6 +55,8 @@ export default function Intake() {
   const [text, setText] = useState("");
   const [title, setTitle] = useState("");
   const [samples, setSamples] = useState<Sample[]>([]);
+  const [frameworks, setFrameworks] = useState<string[]>(["All"]);
+  const [framework, setFramework] = useState("All");
   const [triage, setTriage] = useState<TriageResult | null>(null);
   const [analysis, setAnalysis] = useState<AnalyzeResult | null>(null);
   const [busy, setBusy] = useState<"triage" | "analyze" | "pipeline" | null>(null);
@@ -57,9 +66,19 @@ export default function Intake() {
   useEffect(() => {
     fetch("/api/samples")
       .then((r) => r.json())
-      .then((d) => setSamples(d.samples || []))
+      .then((d) => {
+        setSamples(d.samples || []);
+        if (Array.isArray(d.frameworks) && d.frameworks.length) {
+          setFrameworks(d.frameworks);
+        }
+      })
       .catch(() => {});
   }, []);
+
+  const visibleSamples =
+    framework === "All"
+      ? samples
+      : samples.filter((s) => s.framework === framework);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -248,8 +267,24 @@ export default function Intake() {
 
         <Card>
           <SectionTitle eyebrow="Library">Fictional samples</SectionTitle>
-          <div className="space-y-2">
-            {samples.map((s) => (
+          <div className="mb-3 flex flex-wrap gap-1.5">
+            {frameworks.map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFramework(f)}
+                className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold ${
+                  framework === f
+                    ? "bg-[var(--ink)] text-white"
+                    : "bg-[var(--paper-2)] text-[var(--ink-mute)]"
+                }`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+          <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
+            {visibleSamples.map((s) => (
               <button
                 key={s.id}
                 onClick={() => loadSample(s)}
@@ -257,13 +292,24 @@ export default function Intake() {
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-sm font-semibold">{s.title}</span>
-                  <Badge color="slate">{s.label}</Badge>
+                  <Badge color="slate">{s.framework || s.label}</Badge>
                 </div>
                 <p className="mt-1 text-xs text-[var(--ink-mute)]">{s.preview}</p>
               </button>
             ))}
-            {samples.length === 0 && <p className="text-sm text-[var(--ink-mute)]">Loading samples…</p>}
+            {samples.length === 0 && (
+              <p className="text-sm text-[var(--ink-mute)]">Loading samples…</p>
+            )}
+            {samples.length > 0 && visibleSamples.length === 0 && (
+              <p className="text-sm text-[var(--ink-mute)]">
+                No samples in this framework.
+              </p>
+            )}
           </div>
+          <p className="mt-3 text-[11px] text-[var(--ink-mute)]">
+            Includes CCAR, Dodd-Frank §165(d), COREP, FINREP, and Call Report
+            (FFIEC 031) demos — all fictional.
+          </p>
         </Card>
       </div>
 

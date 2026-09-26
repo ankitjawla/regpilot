@@ -55,6 +55,11 @@ CREATE TABLE IF NOT EXISTS regpilot_audit(
 );
 CREATE INDEX IF NOT EXISTS idx_regpilot_audit_item ON regpilot_audit(item_id);
 CREATE INDEX IF NOT EXISTS idx_regpilot_items_status ON regpilot_items(status);
+CREATE TABLE IF NOT EXISTS regpilot_agent_config(
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  config JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 `;
 
 function ensureSchema(): Promise<void> {

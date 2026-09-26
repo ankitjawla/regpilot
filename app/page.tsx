@@ -189,6 +189,12 @@ export default function Dashboard() {
               )}
             </Link>
             <Link
+              href="/workflow"
+              className="inline-flex items-center rounded-xl border border-[var(--line)] bg-white px-4 py-2.5 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--paper-2)]"
+            >
+              Workflow
+            </Link>
+            <Link
               href="/intake"
               className="inline-flex items-center rounded-xl bg-[var(--ink)] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[var(--ink-2)]"
             >

@@ -9,6 +9,8 @@ const PRIMARY = [
   { href: "/", label: "Overview", hint: "Pipeline pulse" },
   { href: "/intake", label: "Intake", hint: "Triage & draft" },
   { href: "/review", label: "Review", hint: "Human gate" },
+  { href: "/workflow", label: "Workflow", hint: "How it runs" },
+  { href: "/agents", label: "Agents", hint: "Edit policy" },
   { href: "/audit", label: "Audit", hint: "Decision trail" },
 ];
 
@@ -82,7 +84,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
         <nav className="flex gap-1 overflow-x-auto md:flex-col md:overflow-visible">
           {PRIMARY.map((l) => {
-            const active = pathname === l.href;
+            const active =
+              pathname === l.href ||
+              (l.href !== "/" && pathname.startsWith(l.href + "/"));
             const showBadge = l.href === "/review" && pending != null && pending > 0;
             return (
               <Link

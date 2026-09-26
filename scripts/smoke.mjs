@@ -61,6 +61,34 @@ async function main() {
     fail("health", e.message);
   }
 
+  try {
+    const samples = await req("GET", "/api/samples");
+    assert(samples.status === 200, `samples HTTP ${samples.status}`);
+    const ids = (samples.json.samples || []).map((s) => s.id);
+    for (const need of [
+      "ccar-stress-capital",
+      "dodd-frank-living-will",
+      "corep-own-funds",
+      "finrep-credit-quality",
+      "call-report-ffiec031",
+    ]) {
+      assert(ids.includes(need), `missing sample ${need}`);
+    }
+    pass(`samples n=${ids.length}`);
+  } catch (e) {
+    fail("samples", e.message);
+  }
+
+  try {
+    const a = await req("GET", "/api/agents");
+    assert(a.status === 200, `agents HTTP ${a.status}`);
+    assert(a.json.config?.gate?.autoApproveAbove != null, "agents config");
+    assert(Array.isArray(a.json.workflow) && a.json.workflow.length >= 8, "workflow steps");
+    pass(`agents workflow steps=${a.json.workflow.length}`);
+  } catch (e) {
+    fail("agents", e.message);
+  }
+
   let approvedItemId = null;
   try {
     const { status, json, ms } = await req("POST", "/api/triage", {
