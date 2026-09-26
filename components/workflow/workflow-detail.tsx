@@ -176,6 +176,10 @@ export function WorkflowDetailSheet({
                 "Examiner packages include memo, obligations, grounding, redacted source, and audit trail."}
               {step.id === "eval" &&
                 "Replay labeled samples to calibrate thresholds without writing production decisions."}
+              {step.id === "blocked" &&
+                "Guardrail stopped this item. Nothing was sent to Azure; the audit trail records the block reason."}
+              {step.id === "fastpath" &&
+                "Router skipped the heavy draft path. The item still hits confidence + gate with triage judgments."}
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               {step.id === "intake" && (

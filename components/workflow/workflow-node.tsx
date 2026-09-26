@@ -66,6 +66,7 @@ export function WorkflowStepNode({ data }: NodeProps<WorkflowFlowNode>) {
       <Handle
         type="target"
         position={Position.Top}
+        id="top"
         className="rp-flow-handle"
       />
       <Handle
@@ -78,6 +79,12 @@ export function WorkflowStepNode({ data }: NodeProps<WorkflowFlowNode>) {
         type="target"
         position={Position.Right}
         id="in-right"
+        className="rp-flow-handle"
+      />
+      <Handle
+        type="target"
+        position={Position.Bottom}
+        id="bottom-in"
         className="rp-flow-handle"
       />
       <span className="rp-flow-node-index">{String(index + 1).padStart(2, "0")}</span>
@@ -94,6 +101,7 @@ export function WorkflowStepNode({ data }: NodeProps<WorkflowFlowNode>) {
       <Handle
         type="source"
         position={Position.Bottom}
+        id="bottom"
         className="rp-flow-handle"
       />
       <Handle
@@ -108,6 +116,19 @@ export function WorkflowStepNode({ data }: NodeProps<WorkflowFlowNode>) {
         id="out-left"
         className="rp-flow-handle"
       />
+    </div>
+  );
+}
+
+export function WorkflowLaneLabel({
+  data,
+}: {
+  data: { label: string; hint: string };
+}) {
+  return (
+    <div className="rp-flow-lane">
+      <span className="rp-flow-lane-label">{data.label}</span>
+      <span className="rp-flow-lane-hint">{data.hint}</span>
     </div>
   );
 }
