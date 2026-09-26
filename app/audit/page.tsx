@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Card, Badge, PageHeader } from "@/components/ui";
 
 type Entry = {
@@ -125,7 +126,16 @@ export default function AuditLog() {
                       {new Date(e.created_at).toLocaleString()}
                     </td>
                     <td className="max-w-[180px] truncate py-2.5 pr-3 text-xs">
-                      {e.item_id ? `#${e.item_id} ${e.title || ""}` : "—"}
+                      {e.item_id ? (
+                        <Link
+                          href={`/items/${e.item_id}`}
+                          className="font-medium text-[var(--ink)] hover:underline"
+                        >
+                          #{e.item_id} {e.title || ""}
+                        </Link>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td className="py-2.5 pr-3">
                       <Badge color={actorColor(e.actor) as "green" | "slate" | "amber" | "blue"}>

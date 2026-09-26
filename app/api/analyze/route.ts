@@ -5,6 +5,7 @@ import {
   jevConfidence,
   gateDecision,
 } from "@/lib/jev";
+import { typesafeConfigured, typesafeGroundObligations } from "@/lib/typesafe";
 import { bigDeployment } from "@/lib/azure";
 import { query, audit } from "@/lib/db";
 import { rateLimited, clientIp } from "@/lib/ratelimit";
@@ -46,11 +47,9 @@ export async function POST(req: NextRequest) {
       rationale: "",
     } as Parameters<typeof extractObligations>[1];
 
-    // --- Obligations (large model, JSON mode)
     const obligations = await extractObligations(item.source_text_redacted, triage);
     await audit(itemId, bigDeployment(), "obligations.extract", `${obligations.length} obligation(s) extracted`);
 
-    // --- Memo (routed: fast path = small model, else large model)
     const { memo, modelUsed } = await draftMemo(
       item.source_text_redacted,
       triage,
@@ -59,16 +58,70 @@ export async function POST(req: NextRequest) {
     );
     await audit(itemId, modelUsed, "memo.draft", item.fast_path ? "fast path (small model)" : "full analysis (large model)");
 
-    // --- Confidence (Jev-first: local score, Azure fallback)
     const confidence = await jevConfidence(
       memo,
       obligations,
       triage,
       req.nextUrl.origin
     );
-    await audit(itemId, confidence.model, "confidence.score", `score=${confidence.score.toFixed(2)}: ${confidence.reasons.slice(0, 2).join("; ")}`);
 
-    // --- Gate
+    let grounding = null;
+    if (typesafeConfigured() && obligations.length > 0) {
+      try {
+        const g = await typesafeGroundObligations({
+          source: item.source_text_redacted,
+          obligations,
+          memo,
+        });
+        grounding = {
+          model: g.model,
+          overallSupported: g.overallSupported,
+          inventedClaims: g.inventedClaims,
+          unsupportedCount: g.unsupportedCount,
+          obligations: g.obligations,
+          latencyMs: g.latencyMs,
+        };
+        const softFail =
+          g.overallSupported < 0.55 || g.inventedClaims > 0.55;
+        await audit(
+          itemId,
+          g.model,
+          "grounding.check",
+          JSON.stringify({
+            model: g.model,
+            overallSupported: g.overallSupported,
+            inventedClaims: g.inventedClaims,
+            unsupportedCount: g.unsupportedCount,
+            softFail,
+            details: `${g.unsupportedCount} unsupported obligation(s); inventedClaims noul ${g.inventedClaims.toFixed(2)}`,
+          })
+        );
+        if (softFail) {
+          confidence.score = Math.min(confidence.score, 0.49);
+          confidence.reasons.push(
+            `Grounding soft-fail (supported ${g.overallSupported.toFixed(2)}, invented ${g.inventedClaims.toFixed(2)})`
+          );
+        } else if (g.unsupportedCount > 0) {
+          confidence.score = Math.min(confidence.score, 0.75);
+          confidence.reasons.push(
+            `${g.unsupportedCount} obligation(s) weakly supported`
+          );
+        }
+      } catch (e) {
+        console.error(
+          "[analyze] grounding unavailable:",
+          (e as Error).message?.slice(0, 120)
+        );
+      }
+    }
+
+    await audit(
+      itemId,
+      confidence.model,
+      "confidence.score",
+      `score=${confidence.score.toFixed(2)}: ${confidence.reasons.slice(0, 3).join("; ")}`
+    );
+
     const gate = gateDecision(confidence.score);
     await audit(itemId, "gate", `gate.${gate.status}`, gate.label);
 
@@ -96,6 +149,7 @@ export async function POST(req: NextRequest) {
       memo,
       modelUsed,
       confidence,
+      grounding,
       gate,
       status: gate.status,
     });

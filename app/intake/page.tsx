@@ -36,6 +36,12 @@ type AnalyzeResult = {
   confidence: { score: number; reasons: string[]; model?: string };
   gate: { status: string; label: string };
   status: string;
+  grounding?: {
+    model?: string;
+    overallSupported?: number;
+    inventedClaims?: number;
+    unsupportedCount?: number;
+  } | null;
 };
 
 export default function Intake() {
@@ -44,7 +50,7 @@ export default function Intake() {
   const [samples, setSamples] = useState<Sample[]>([]);
   const [triage, setTriage] = useState<TriageResult | null>(null);
   const [analysis, setAnalysis] = useState<AnalyzeResult | null>(null);
-  const [busy, setBusy] = useState<"triage" | "analyze" | null>(null);
+  const [busy, setBusy] = useState<"triage" | "analyze" | "pipeline" | null>(null);
   const [error, setError] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -54,6 +60,19 @@ export default function Intake() {
       .then((d) => setSamples(d.samples || []))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        if (busy) return;
+        if (text.trim().length >= 20) runPipeline();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, title, busy]);
 
   function reset() {
     setTriage(null);
@@ -93,6 +112,44 @@ export default function Intake() {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Analysis failed");
       setAnalysis(d);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function runPipeline() {
+    reset();
+    setBusy("pipeline");
+    try {
+      const r = await fetch("/api/pipeline", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, title }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Pipeline failed");
+      setTriage({
+        blocked: d.blocked,
+        itemId: d.itemId,
+        guardrail: d.guardrail,
+        triage: d.triage,
+        decisions: d.decisions ?? null,
+        jev: d.jev,
+        route: d.route,
+      });
+      if (!d.blocked) {
+        setAnalysis({
+          obligations: d.obligations || [],
+          memo: d.memo || "",
+          modelUsed: d.modelUsed || "",
+          confidence: d.confidence || { score: 0, reasons: [] },
+          gate: d.gate || { status: d.status, label: "" },
+          status: d.status,
+          grounding: d.grounding,
+        });
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -160,11 +217,20 @@ export default function Intake() {
           />
           <div className="mt-3 flex flex-wrap gap-2">
             <button
+              onClick={runPipeline}
+              disabled={busy !== null || text.trim().length < 20}
+              className="rounded-xl bg-[var(--sage)] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0d655e] disabled:opacity-50"
+            >
+              {busy === "pipeline"
+                ? "Running full pipeline…"
+                : "Run full pipeline ⌘↵"}
+            </button>
+            <button
               onClick={runTriage}
               disabled={busy !== null || text.trim().length < 20}
               className="rounded-xl bg-[var(--ink)] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[var(--ink-2)] disabled:opacity-50"
             >
-              {busy === "triage" ? "Triaging…" : "Run triage"}
+              {busy === "triage" ? "Triaging…" : "Triage only"}
             </button>
             <button
               onClick={() => fileRef.current?.click()}
@@ -174,6 +240,9 @@ export default function Intake() {
             </button>
             <input ref={fileRef} type="file" accept=".txt,.md" className="hidden" onChange={onFile} />
           </div>
+          <p className="mt-2 text-[11px] text-[var(--ink-mute)]">
+            Full pipeline = guardrail → triage → draft → confidence → grounding → gate.
+          </p>
           {error && <p className="mt-3 text-sm text-[var(--coral)]">{error}</p>}
         </Card>
 
@@ -347,6 +416,36 @@ export default function Intake() {
             </div>
           </Card>
 
+          {analysis.grounding && (
+            <Card>
+              <SectionTitle eyebrow="TypeSafe">Grounding check</SectionTitle>
+              <div className="flex flex-wrap gap-2 text-sm">
+                <Badge color="green">
+                  supported{" "}
+                  {analysis.grounding.overallSupported != null
+                    ? analysis.grounding.overallSupported.toFixed(2)
+                    : "—"}
+                </Badge>
+                <Badge
+                  color={
+                    (analysis.grounding.unsupportedCount || 0) > 0 ? "amber" : "slate"
+                  }
+                >
+                  unsupported {analysis.grounding.unsupportedCount ?? 0}
+                </Badge>
+                {analysis.grounding.inventedClaims != null && (
+                  <Badge
+                    color={
+                      analysis.grounding.inventedClaims > 0.55 ? "red" : "slate"
+                    }
+                  >
+                    invented {analysis.grounding.inventedClaims.toFixed(2)}
+                  </Badge>
+                )}
+              </div>
+            </Card>
+          )}
+
           <Card>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <SectionTitle eyebrow="Gate">Confidence</SectionTitle>
@@ -363,14 +462,25 @@ export default function Intake() {
               ))}
             </ul>
             <p className="mt-2 text-xs text-[var(--ink-mute)]">{analysis.gate.label}</p>
-            {(analysis.status === "pending_review" || analysis.status === "needs_work") && (
-              <Link
-                href="/review"
-                className="mt-3 inline-block rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600"
-              >
-                Go to review queue
-              </Link>
-            )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              {triage && (
+                <Link
+                  href={`/items/${triage.itemId}`}
+                  className="inline-block rounded-lg bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--ink-2)]"
+                >
+                  Open examiner package
+                </Link>
+              )}
+              {(analysis.status === "pending_review" ||
+                analysis.status === "needs_work") && (
+                <Link
+                  href="/review"
+                  className="inline-block rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600"
+                >
+                  Go to review queue
+                </Link>
+              )}
+            </div>
           </Card>
         </div>
       )}

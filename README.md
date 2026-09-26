@@ -39,6 +39,11 @@ paste / upload / sample
 └───────┬───────┘
         ▼
 ┌───────────────┐
+│  GROUNDING    │  TypeSafe Nouls: obligations vs source; invented-claims screen
+│  (Jev / S1)   │  soft-fail caps confidence (≤0.49) before the gate
+└───────┬───────┘
+        ▼
+┌───────────────┐
 │  CONFIDENCE   │  TypeSafe Nouls + Score → composite 0–1 with reasons
 │  GATE         │  >0.90 auto-approve · 0.50–0.90 human confirm · <0.50 human review
 └───────────────┘
@@ -84,13 +89,18 @@ no manual migration step:
 ## API
 
 - `POST /api/triage` — `{text, title?}` → guardrail + triage + route
-- `POST /api/analyze` — `{itemId}` → obligations + memo + confidence + gate
-- `GET /api/review` — review queue · `POST /api/review` — approve / request changes
+- `POST /api/analyze` — `{itemId}` → obligations + memo + confidence + grounding + gate
+- `POST /api/pipeline` — `{text, title?}` → one-shot triage → draft → grounding → gate
+- `GET /api/detail?item_id=` — examiner package (item + obligations + draft + audit + grounding)
+- `GET /api/export?item_id=&format=json|md` — downloadable examiner package
+- `GET /api/review` — review queue · `POST /api/review` — `{itemId|itemIds, decision, note?}` approve / request changes (bulk up to 50)
 - `GET /api/audit` — filterable audit log (`?actor=&q=&item_id=`)
 - `GET /api/samples` — the five fictional samples
-- `GET /api/stats` — dashboard numbers
+- `GET /api/stats` — dashboard numbers (incl. grounding soft-fail count)
 - `GET /api/jevmeta` — TypeSafe + local model metadata
 - `GET /api/health` — readiness (TypeSafe / Azure / DB configured; no secrets)
+
+UI: `/items/[id]` examiner package · Review queue filters/search/bulk · Overview auto-refresh (30s) with deep links.
 
 ## Develop
 

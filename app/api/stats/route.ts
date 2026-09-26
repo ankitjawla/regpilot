@@ -80,6 +80,11 @@ export async function GET() {
        ORDER BY a.created_at DESC
        LIMIT 12`
     );
+    const [groundingSoft] = await query<{ n: string }>(
+      `SELECT COUNT(DISTINCT item_id) AS n FROM regpilot_audit
+       WHERE action = 'grounding.check'
+         AND detail ILIKE '%"softFail":true%'`
+    );
     const total = Number(totals.total);
     return NextResponse.json({
       total,
@@ -95,6 +100,7 @@ export async function GET() {
       autoApprovedCount: Number(totals.auto_approved_count),
       approvedCount: Number(totals.approved_count),
       criticalCount: Number(totals.critical_count),
+      groundingSoftFailCount: Number(groundingSoft?.n || 0),
       byCategory: byCat,
       byStatus,
       recent,
