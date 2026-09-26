@@ -89,7 +89,6 @@ function WorkflowCanvasInner({
       fitViewOptions={{ padding: 0.18, maxZoom: 1.05 }}
       minZoom={0.35}
       maxZoom={1.6}
-      proOptions={{ hideAttribution: true }}
       nodesDraggable={false}
       nodesConnectable={false}
       elementsSelectable
