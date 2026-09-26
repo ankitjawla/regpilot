@@ -172,10 +172,18 @@ export async function POST(req: NextRequest) {
       suggestions,
     });
   } catch (e) {
-    console.error("[eval POST]", (e as Error).message);
+    const msg = (e as Error).message || "Eval run failed";
+    console.error("[eval POST]", msg);
+    const typesafeDown =
+      /403|401|RBAC|TYPESAFE|Authentication|Unauthorized/i.test(msg);
     return NextResponse.json(
-      { error: "Eval run failed. Please try again." },
-      { status: 500 }
+      {
+        error: typesafeDown
+          ? `TypeSafe unavailable for eval: ${msg.slice(0, 160)}`
+          : "Eval run failed. Please try again.",
+        detail: msg.slice(0, 200),
+      },
+      { status: typesafeDown ? 503 : 500 }
     );
   }
 }
