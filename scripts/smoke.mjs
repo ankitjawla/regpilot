@@ -187,6 +187,28 @@ async function main() {
       `detail package policy_v=${detail.json.provenance?.policy_version} preset=${detail.json.provenance?.preset}`
     );
 
+    const findReq = await req("POST", "/api/find", {
+      item_id: json.itemId,
+      query: "when must the SAR be filed?",
+    });
+    if (findReq.status === 503 || findReq.status === 400) {
+      pass(
+        `line-find skipped (${findReq.status}): ${findReq.json.error || "TypeSafe unavailable"}`
+      );
+    } else {
+      assert(findReq.status === 200, `find HTTP ${findReq.status}`);
+      assert(
+        ["answered", "partial", "absent"].includes(findReq.json.disposition),
+        `disposition=${findReq.json.disposition}`
+      );
+      assert(typeof findReq.json.existsNoul === "number", "existsNoul");
+      assert(Array.isArray(findReq.json.hits) && findReq.json.hits.length > 0, "hits");
+      assert(findReq.json.hits[0].id?.startsWith("L"), "hit line id");
+      pass(
+        `line-find ${findReq.json.disposition} exists=${findReq.json.existsNoul.toFixed(2)} top=${findReq.json.hits[0].id} ${findReq.ms}ms`
+      );
+    }
+
     const exp = await req("GET", `/api/export?item_id=${json.itemId}&format=json`);
     assert(exp.status === 200, `export HTTP ${exp.status}`);
     assert(exp.json.item?.id === json.itemId, "export item");
