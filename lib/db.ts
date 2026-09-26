@@ -60,6 +60,14 @@ CREATE TABLE IF NOT EXISTS regpilot_agent_config(
   config JSONB NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE TABLE IF NOT EXISTS regpilot_custom_samples(
+  id SERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  framework TEXT NOT NULL DEFAULT 'Custom',
+  label TEXT NOT NULL DEFAULT 'CUSTOM SAMPLE',
+  text TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 `;
 
 function ensureSchema(): Promise<void> {

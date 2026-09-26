@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { playbookForText } from "@/lib/playbooks";
 
 /** Full item package for the detail page (item + obligations + draft + audit). */
 export async function GET(req: NextRequest) {
@@ -56,6 +57,12 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    const playbook = playbookForText({
+      title: item.title,
+      category: item.category,
+      source: item.source_text_redacted.slice(0, 2000),
+    });
+
     return NextResponse.json({
       item,
       obligations,
@@ -70,6 +77,7 @@ export async function GET(req: NextRequest) {
             .slice(-1)[0]?.detail || "",
       },
       grounding,
+      playbook,
       audit: audits,
     });
   } catch (e) {

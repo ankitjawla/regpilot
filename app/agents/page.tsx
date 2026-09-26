@@ -10,7 +10,10 @@ import {
 } from "@/components/ui";
 import type { AgentConfig } from "@/lib/agents";
 
-type AgentKey = Exclude<keyof AgentConfig, "version" | "updatedAt">;
+type AgentKey = Exclude<
+  keyof AgentConfig,
+  "version" | "updatedAt" | "preset" | "console"
+>;
 
 const AGENT_KEYS: AgentKey[] = [
   "guardrail",
@@ -80,6 +83,7 @@ export default function AgentsPage() {
     if (!config) return;
     setConfig({
       ...config,
+      preset: "custom",
       [selected]: { ...config[selected], ...patch },
     });
     setDirty(true);
@@ -139,6 +143,12 @@ export default function AgentsPage() {
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
+              href="/settings"
+              className="rounded-xl border border-[var(--line)] bg-white px-4 py-2.5 text-sm font-semibold hover:bg-[var(--paper-2)]"
+            >
+              Settings & presets
+            </Link>
+            <Link
               href="/workflow"
               className="rounded-xl border border-[var(--line)] bg-white px-4 py-2.5 text-sm font-semibold hover:bg-[var(--paper-2)]"
             >
@@ -184,7 +194,8 @@ export default function AgentsPage() {
           <Card className="lg:col-span-4">
             <SectionTitle eyebrow="Stack">Decision agents</SectionTitle>
             <p className="mb-3 text-xs text-[var(--ink-mute)]">
-              Config v{config.version}
+              Config v{config.version} · preset{" "}
+              <Badge color="slate">{config.preset}</Badge>
               {config.updatedAt
                 ? ` · ${new Date(config.updatedAt).toLocaleString()}`
                 : " · defaults"}
@@ -362,11 +373,24 @@ export default function AgentsPage() {
                         />
                       </>
                     )}
-                    {(selected === "draft" || selected === "confidence") && (
+                    {selected === "draft" && "obligationSystemPrompt" in agent && (
+                      <>
+                        <p className="text-sm text-[var(--ink-mute)]">
+                          Edit full Azure system prompts under Settings. Quick
+                          toggle and labels live here.
+                        </p>
+                        <Link
+                          href="/settings"
+                          className="inline-block text-xs font-semibold text-[var(--sky)] hover:underline"
+                        >
+                          Open draft prompts →
+                        </Link>
+                      </>
+                    )}
+                    {selected === "confidence" && (
                       <p className="text-sm text-[var(--ink-mute)]">
-                        This agent has no numeric thresholds — edit the label and
-                        description, or toggle enabled. Draft always uses Azure;
-                        confidence always uses TypeSafe when configured.
+                        Confidence uses TypeSafe nouls + score when configured.
+                        Soft-caps come from the grounding agent thresholds.
                       </p>
                     )}
                   </div>

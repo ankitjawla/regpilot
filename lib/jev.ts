@@ -4,6 +4,8 @@
 
 import {
   azureChat,
+  azureChatSmall,
+  azureChatResult,
   parseJson,
   smallDeployment,
   bigDeployment,
@@ -259,8 +261,7 @@ export async function jevGuardrail(
   let injectionSuspected = screen.hit;
   let modelNote = "";
   try {
-    const out = await azureChat({
-      deployment: smallDeployment(),
+    const { content: out } = await azureChatSmall({
       maxTokens: 300,
       json: true,
       messages: [
@@ -362,8 +363,7 @@ export async function jevClassify(
     // Fall through to the Azure small-deployment path below.
   }
 
-  const out = await azureChat({
-    deployment: smallDeployment(),
+  const { content: out, deploymentUsed } = await azureChatSmall({
     maxTokens: 500,
     json: true,
     messages: [
@@ -382,7 +382,7 @@ export async function jevClassify(
   });
   const t = parseJson<Triage>(out);
   t.confidence = Math.min(1, Math.max(0, Number(t.confidence) || 0));
-  return { ...t, jev: { model: smallModelLabel(), latencyMs: null } };
+  return { ...t, jev: { model: deploymentUsed || smallModelLabel(), latencyMs: null } };
 }
 
 // ------------------------------------------------------------------- route
@@ -456,23 +456,18 @@ export function routeDecision(
 // -------------------------------------------------------------- obligations
 export async function extractObligations(
   redactedText: string,
-  triage: Triage
+  triage: Triage,
+  opts?: { systemPrompt?: string }
 ): Promise<Obligation[]> {
+  const system =
+    opts?.systemPrompt?.trim() ||
+    DEFAULT_AGENT_CONFIG.draft.obligationSystemPrompt;
   const out = await azureChat({
     deployment: bigDeployment(),
     maxTokens: 1500,
     json: true,
     messages: [
-      {
-        role: "system",
-        content:
-          "You are a regulatory compliance analyst at a bank. Extract every concrete obligation, " +
-          "required action, or deadline from the document. Respond with JSON only: " +
-          '{"obligations": [{"owner": string (role, e.g. \'BSA Officer\'; use \'Unassigned\' if unclear), ' +
-          '"action": string, "due_date": string (exact date if stated, else "unspecified"), ' +
-          '"source_quote": string (short verbatim quote supporting it)}]}. ' +
-          "Do not invent dates, owners, or obligations not supported by the text. If none, return {\"obligations\": []}.",
-      },
+      { role: "system", content: system },
       {
         role: "user",
         content:
@@ -490,30 +485,45 @@ export async function draftMemo(
   redactedText: string,
   triage: Triage,
   obligations: Obligation[],
-  fastPath: boolean
+  fastPath: boolean,
+  opts?: { systemPrompt?: string }
 ): Promise<{ memo: string; modelUsed: string }> {
-  const deployment = fastPath ? smallDeployment() : bigDeployment();
-  const out = await azureChat({
-    deployment,
+  const system =
+    opts?.systemPrompt?.trim() ||
+    DEFAULT_AGENT_CONFIG.draft.memoSystemPrompt.replace(
+      /\{\{MEMO_SECTIONS\}\}/g,
+      DEFAULT_AGENT_CONFIG.console.memoSections.replace(/\n/g, ", ")
+    );
+  const messages: ChatMsg[] = [
+    { role: "system", content: system },
+    {
+      role: "user",
+      content:
+        "Category: " +
+        triage.category +
+        " | Jurisdiction: " +
+        triage.jurisdiction +
+        " | Urgency: " +
+        triage.urgency +
+        "\nExtracted obligations:\n" +
+        JSON.stringify(obligations, null, 1) +
+        "\n\nSource document:\n" +
+        truncate(redactedText),
+    },
+  ];
+  if (fastPath) {
+    const { content, deploymentUsed } = await azureChatSmall({
+      maxTokens: 2000,
+      messages,
+    });
+    return { memo: content, modelUsed: deploymentUsed };
+  }
+  const { content, deploymentUsed } = await azureChatResult({
+    deployment: bigDeployment(),
     maxTokens: 2000,
-    messages: [
-      {
-        role: "system",
-        content:
-          "You are a regulatory compliance officer drafting an internal memo. Write a professional memo in Markdown " +
-          "with exactly these sections: ## Subject, ## Background, ## Key obligations, ## Recommended actions, ## Open questions. " +
-          "Be factual and concise. Never invent dates, regulation citations, or obligations not supported by the source text. " +
-          "Mark anything uncertain as an open question.",
-      },
-      {
-        role: "user",
-        content:
-          `Category: ${triage.category} | Jurisdiction: ${triage.jurisdiction} | Urgency: ${triage.urgency}\n` +
-          `Extracted obligations:\n${JSON.stringify(obligations, null, 1)}\n\nSource document:\n${truncate(redactedText)}`,
-      },
-    ],
+    messages,
   });
-  return { memo: out, modelUsed: deployment };
+  return { memo: content, modelUsed: deploymentUsed };
 }
 
 // --------------------------------------------------------------- confidence
@@ -585,8 +595,7 @@ export async function jevConfidence(
     // Fall through to the Azure small-deployment path below.
   }
 
-  const out = await azureChat({
-    deployment: smallDeployment(),
+  const { content: out, deploymentUsed } = await azureChatSmall({
     maxTokens: 500,
     json: true,
     messages: [
@@ -608,7 +617,7 @@ export async function jevConfidence(
   const c = parseJson<ConfidenceScore>(out);
   c.score = Math.min(1, Math.max(0, Number(c.score) || 0));
   if (!Array.isArray(c.reasons)) c.reasons = [];
-  return { ...c, model: smallModelLabel() };
+  return { ...c, model: deploymentUsed || smallModelLabel() };
 }
 
 // -------------------------------------------------------------------- gate

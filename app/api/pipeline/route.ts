@@ -13,7 +13,12 @@ import { bigDeployment } from "@/lib/azure";
 import { query, audit } from "@/lib/db";
 import { rateLimited, clientIp } from "@/lib/ratelimit";
 import { getAgentConfig } from "@/lib/agent-store";
-import { DEFAULT_AGENT_CONFIG } from "@/lib/agents";
+import {
+  DEFAULT_AGENT_CONFIG,
+  resolveMemoSystemPrompt,
+} from "@/lib/agents";
+
+export const maxDuration = 120;
 
 /**
  * One-shot intake: guardrail → triage → route → obligations → memo →
@@ -23,6 +28,7 @@ export async function POST(req: NextRequest) {
   if (rateLimited(clientIp(req))) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
+  let stage = "init";
   try {
     const { text, title } = (await req.json()) as {
       text?: string;
@@ -45,7 +51,9 @@ export async function POST(req: NextRequest) {
       (typeof title === "string" && title.trim().slice(0, 120)) ||
       text.trim().replace(/\s+/g, " ").slice(0, 80);
     const origin = req.nextUrl.origin;
+    const agentCfg = await getAgentConfig().catch(() => DEFAULT_AGENT_CONFIG);
 
+    stage = "guardrail";
     const { guardrail, redacted, jev } = await jevGuardrail(text, origin);
     if (guardrail.block) {
       const rows = await query<{ id: number }>(
@@ -63,8 +71,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const agentCfg = await getAgentConfig().catch(() => DEFAULT_AGENT_CONFIG);
+    stage = "triage";
     const triage = await jevClassify(redacted, origin, jev.full, jev.typesafe);
+    stage = "router";
     const route = routeDecision(triage, {
       escalateNoul: jev.typesafe?.escalate.noul ?? null,
       escalateFullPathThreshold: agentCfg.triage.escalateFullPathThreshold,
@@ -73,6 +82,7 @@ export async function POST(req: NextRequest) {
       routineCategories: agentCfg.router.routineCategories,
     });
 
+    stage = "persist";
     const rows = await query<{ id: number }>(
       `INSERT INTO regpilot_items
          (title, source_text_redacted, category, urgency, jurisdiction, confidence, fast_path, status)
@@ -89,7 +99,12 @@ export async function POST(req: NextRequest) {
     );
     const itemId = rows[0].id;
     await audit(itemId, jev.model, "guardrail.pass", guardrail.reason);
-    await audit(itemId, triage.jev.model, "triage.classify", JSON.stringify(triage));
+    await audit(
+      itemId,
+      triage.jev.model,
+      "triage.classify",
+      JSON.stringify(triage)
+    );
     await audit(
       itemId,
       "router",
@@ -97,7 +112,12 @@ export async function POST(req: NextRequest) {
       route.reason
     );
 
-    const obligations = await extractObligations(redacted, triage);
+    stage = "obligations";
+    const obligations = agentCfg.draft.enabled
+      ? await extractObligations(redacted, triage, {
+          systemPrompt: agentCfg.draft.obligationSystemPrompt,
+        })
+      : [];
     await audit(
       itemId,
       bigDeployment(),
@@ -105,12 +125,15 @@ export async function POST(req: NextRequest) {
       `${obligations.length} obligation(s) extracted`
     );
 
-    const { memo, modelUsed } = await draftMemo(
-      redacted,
-      triage,
-      obligations,
-      route.fastPath
-    );
+    stage = "memo";
+    const { memo, modelUsed } = agentCfg.draft.enabled
+      ? await draftMemo(redacted, triage, obligations, route.fastPath, {
+          systemPrompt: resolveMemoSystemPrompt(agentCfg),
+        })
+      : {
+          memo: "_Draft agent disabled in Settings / Agents._",
+          modelUsed: "disabled",
+        };
     await audit(
       itemId,
       modelUsed,
@@ -118,6 +141,7 @@ export async function POST(req: NextRequest) {
       route.fastPath ? "fast path (small model)" : "full analysis (large model)"
     );
 
+    stage = "confidence";
     const confidence = await jevConfidence(memo, obligations, triage, origin);
 
     let grounding = null;
@@ -126,6 +150,7 @@ export async function POST(req: NextRequest) {
       typesafeConfigured() &&
       obligations.length > 0
     ) {
+      stage = "grounding";
       try {
         const g = await typesafeGroundObligations({
           source: redacted,
@@ -156,7 +181,6 @@ export async function POST(req: NextRequest) {
             details: `${g.unsupportedCount} unsupported obligation(s); inventedClaims noul ${g.inventedClaims.toFixed(2)}`,
           })
         );
-        // Soft penalty when grounding is weak.
         if (softFail) {
           confidence.score = Math.min(confidence.score, 0.49);
           confidence.reasons.push(
@@ -183,12 +207,14 @@ export async function POST(req: NextRequest) {
       `score=${confidence.score.toFixed(2)}: ${confidence.reasons.slice(0, 3).join("; ")}`
     );
 
+    stage = "gate";
     const gate = gateDecision(confidence.score, {
       autoApproveAbove: agentCfg.gate.autoApproveAbove,
       humanConfirmAbove: agentCfg.gate.humanConfirmAbove,
     });
     await audit(itemId, "gate", `gate.${gate.status}`, gate.label);
 
+    stage = "persist_results";
     for (const o of obligations) {
       await query(
         `INSERT INTO regpilot_obligations(item_id, owner, action, due_date, source_quote)
@@ -230,11 +256,20 @@ export async function POST(req: NextRequest) {
       grounding,
       gate,
       status: gate.status,
+      preset: agentCfg.preset,
     });
   } catch (e) {
-    console.error("[pipeline]", (e as Error).message);
+    const msg = (e as Error).message || "unknown";
+    console.error("[pipeline]", stage, msg);
+    const safe = msg
+      .replace(/sk-[a-zA-Z0-9]+/g, "[redacted]")
+      .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
+      .slice(0, 180);
     return NextResponse.json(
-      { error: "Pipeline failed. Please try again." },
+      {
+        error: `Pipeline failed at ${stage}. ${safe}`,
+        stage,
+      },
       { status: 500 }
     );
   }

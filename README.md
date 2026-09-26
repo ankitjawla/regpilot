@@ -95,13 +95,15 @@ no manual migration step:
 - `GET /api/export?item_id=&format=json|md` — downloadable examiner package
 - `GET /api/review` — review queue · `POST /api/review` — `{itemId|itemIds, decision, note?}` approve / request changes (bulk up to 50)
 - `GET /api/audit` — filterable audit log (`?actor=&q=&item_id=`)
-- `GET /api/samples` — fictional samples (CCAR, Dodd-Frank, COREP, FINREP, Call Report, BSA/AML, …)
-- `GET /api/agents` · `PUT /api/agents` — editable agent policy (thresholds / labels); `POST {reset:true}` restores defaults
+- `GET /api/samples` — fictional + custom samples (CCAR, Dodd-Frank, COREP, FINREP, Call Report, BSA/AML, …)
+- `POST /api/samples` · `DELETE /api/samples?id=` — save / delete operator custom samples
+- `GET /api/agents` · `PUT /api/agents` — editable agent policy (thresholds / labels / draft prompts / console branding)
+- `POST /api/agents` — `{reset:true}` or `{preset:"strict"|"balanced"|"lenient"|"exam_ready"}`
 - `GET /api/stats` — dashboard numbers (incl. grounding soft-fail count)
 - `GET /api/jevmeta` — TypeSafe + local model metadata
 - `GET /api/health` — readiness (TypeSafe / Azure / DB configured; no secrets)
 
-UI: `/items/[id]` examiner package · `/workflow` live map of real implementations · `/agents` edit policy · Review filters/bulk · Overview auto-refresh.
+UI: `/settings` presets + memo/export prompts · `/agents` thresholds · `/workflow` live map · `/items/[id]` package + framework playbooks · Review filters/bulk.
 
 ## Develop
 

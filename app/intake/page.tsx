@@ -12,6 +12,8 @@ type Sample = {
   framework?: string;
   preview: string;
   text: string;
+  source?: "builtin" | "custom";
+  dbId?: number;
 };
 
 type TriageResult = {
@@ -194,6 +196,48 @@ export default function Intake() {
     reset();
   }
 
+  async function saveAsSample() {
+    if (text.trim().length < 40) {
+      setError("Need at least 40 characters to save a custom sample.");
+      return;
+    }
+    setBusy("triage");
+    setError("");
+    try {
+      const r = await fetch("/api/samples", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: title || "Custom sample",
+          framework: "Custom",
+          text,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Save failed");
+      const refreshed = await fetch("/api/samples").then((x) => x.json());
+      setSamples(refreshed.samples || []);
+      if (Array.isArray(refreshed.frameworks)) setFrameworks(refreshed.frameworks);
+      setFramework("Custom");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function deleteCustomSample(dbId: number) {
+    setError("");
+    try {
+      const r = await fetch(`/api/samples?id=${dbId}`, { method: "DELETE" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Delete failed");
+      setSamples((prev) => prev.filter((s) => s.dbId !== dbId));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
   function modelBadge(model?: string | null, latencyMs?: number | null) {
     if (!model) return null;
     const isTypesafe = model.startsWith("jev-") && model !== "jev-local-v1";
@@ -257,6 +301,13 @@ export default function Intake() {
             >
               Upload .txt / .md
             </button>
+            <button
+              onClick={saveAsSample}
+              disabled={busy !== null || text.trim().length < 40}
+              className="rounded-xl border border-[var(--line)] bg-white px-4 py-2.5 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--paper-2)] disabled:opacity-50"
+            >
+              Save as sample
+            </button>
             <input ref={fileRef} type="file" accept=".txt,.md" className="hidden" onChange={onFile} />
           </div>
           <p className="mt-2 text-[11px] text-[var(--ink-mute)]">
@@ -285,17 +336,33 @@ export default function Intake() {
           </div>
           <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
             {visibleSamples.map((s) => (
-              <button
+              <div
                 key={s.id}
-                onClick={() => loadSample(s)}
-                className="w-full rounded-xl border border-[var(--line)] bg-[var(--paper-2)] p-3 text-left transition hover:border-[var(--sage)] hover:bg-white"
+                className="rounded-xl border border-[var(--line)] bg-[var(--paper-2)] p-3 transition hover:border-[var(--sage)] hover:bg-white"
               >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-semibold">{s.title}</span>
-                  <Badge color="slate">{s.framework || s.label}</Badge>
-                </div>
-                <p className="mt-1 text-xs text-[var(--ink-mute)]">{s.preview}</p>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => loadSample(s)}
+                  className="w-full text-left"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold">{s.title}</span>
+                    <Badge color={s.source === "custom" ? "green" : "slate"}>
+                      {s.framework || s.label}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 text-xs text-[var(--ink-mute)]">{s.preview}</p>
+                </button>
+                {s.source === "custom" && s.dbId != null && (
+                  <button
+                    type="button"
+                    onClick={() => deleteCustomSample(s.dbId!)}
+                    className="mt-2 text-[11px] font-semibold text-[var(--coral)] hover:underline"
+                  >
+                    Delete custom sample
+                  </button>
+                )}
+              </div>
             ))}
             {samples.length === 0 && (
               <p className="text-sm text-[var(--ink-mute)]">Loading samples…</p>

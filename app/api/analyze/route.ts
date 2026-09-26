@@ -10,7 +10,12 @@ import { bigDeployment } from "@/lib/azure";
 import { query, audit } from "@/lib/db";
 import { rateLimited, clientIp } from "@/lib/ratelimit";
 import { getAgentConfig } from "@/lib/agent-store";
-import { DEFAULT_AGENT_CONFIG } from "@/lib/agents";
+import {
+  DEFAULT_AGENT_CONFIG,
+  resolveMemoSystemPrompt,
+} from "@/lib/agents";
+
+export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
   if (rateLimited(clientIp(req))) {
@@ -49,15 +54,27 @@ export async function POST(req: NextRequest) {
       rationale: "",
     } as Parameters<typeof extractObligations>[1];
 
-    const obligations = await extractObligations(item.source_text_redacted, triage);
+    const agentCfg = await getAgentConfig().catch(() => DEFAULT_AGENT_CONFIG);
+
+    const obligations = agentCfg.draft.enabled
+      ? await extractObligations(item.source_text_redacted, triage, {
+          systemPrompt: agentCfg.draft.obligationSystemPrompt,
+        })
+      : [];
     await audit(itemId, bigDeployment(), "obligations.extract", `${obligations.length} obligation(s) extracted`);
 
-    const { memo, modelUsed } = await draftMemo(
-      item.source_text_redacted,
-      triage,
-      obligations,
-      item.fast_path
-    );
+    const { memo, modelUsed } = agentCfg.draft.enabled
+      ? await draftMemo(
+          item.source_text_redacted,
+          triage,
+          obligations,
+          item.fast_path,
+          { systemPrompt: resolveMemoSystemPrompt(agentCfg) }
+        )
+      : {
+          memo: "_Draft agent disabled in Settings / Agents._",
+          modelUsed: "disabled",
+        };
     await audit(itemId, modelUsed, "memo.draft", item.fast_path ? "fast path (small model)" : "full analysis (large model)");
 
     const confidence = await jevConfidence(
@@ -66,8 +83,6 @@ export async function POST(req: NextRequest) {
       triage,
       req.nextUrl.origin
     );
-
-    const agentCfg = await getAgentConfig().catch(() => DEFAULT_AGENT_CONFIG);
 
     let grounding = null;
     if (

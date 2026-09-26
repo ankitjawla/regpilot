@@ -1,7 +1,7 @@
 // Simple in-memory per-IP rate limiter (30 req/min) for the intake APIs.
 
 const WINDOW_MS = 60_000;
-const MAX_REQ = 30;
+const MAX_REQ = 60;
 
 const hits = new Map<string, number[]>();
 
