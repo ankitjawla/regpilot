@@ -3,12 +3,11 @@ import {
   jevGuardrail,
   jevClassify,
   routeDecision,
-  extractObligations,
+  extractObligationsCascade,
   draftMemo,
   jevConfidence,
   gateDecision,
 } from "@/lib/jev";
-import { typesafeConfigured, typesafeGroundObligations } from "@/lib/typesafe";
 import { bigDeployment } from "@/lib/azure";
 import { query, audit } from "@/lib/db";
 import { rateLimited, clientIp } from "@/lib/ratelimit";
@@ -19,16 +18,23 @@ import {
 } from "@/lib/agents";
 import {
   triageJudgmentsFromTypesafe,
-  groundingJudgmentsFromResult,
   confidenceJudgmentsFromScore,
   type ItemJudgments,
 } from "@/lib/provenance";
+import {
+  bandCfgFromAgent,
+  maybeBeamClassify,
+  runPostDraftEnhancements,
+  applyConfidencePatch,
+  enrichTriageJudgments,
+  taxonomyFromTriage,
+} from "@/lib/enhance";
 
 export const maxDuration = 120;
 
 /**
- * One-shot intake: guardrail → triage → route → obligations → memo →
- * confidence → grounding → gate. Useful for demos and operator speed.
+ * One-shot intake: guardrail → triage → route → obligations (cascade) → memo →
+ * enhancements (dates/dedupe/grounding/playbook/hazard) → confidence → gate.
  */
 export async function POST(req: NextRequest) {
   if (rateLimited(clientIp(req))) {
@@ -58,12 +64,17 @@ export async function POST(req: NextRequest) {
       text.trim().replace(/\s+/g, " ").slice(0, 80);
     const origin = req.nextUrl.origin;
     const agentCfg = await getAgentConfig().catch(() => DEFAULT_AGENT_CONFIG);
+    const bands = bandCfgFromAgent(agentCfg);
 
     stage = "guardrail";
     const { guardrail, redacted, jev } = await jevGuardrail(text, origin);
     if (guardrail.block) {
       const blockedJudgments: ItemJudgments | null = jev.typesafe
-        ? { triage: triageJudgmentsFromTypesafe(jev.typesafe) }
+        ? {
+            triage: triageJudgmentsFromTypesafe(jev.typesafe, {
+              bandCfg: bands,
+            }),
+          }
         : null;
       const rows = await query<{ id: number }>(
         `INSERT INTO regpilot_items
@@ -102,6 +113,22 @@ export async function POST(req: NextRequest) {
 
     stage = "triage";
     const triage = await jevClassify(redacted, origin, jev.full, jev.typesafe);
+    const taxonomy = taxonomyFromTriage(
+      triage,
+      agentCfg.triage.coarseTaxonomyCutoff
+    );
+    const beam = await maybeBeamClassify(
+      redacted,
+      agentCfg.triage.beamClassifyEnabled
+    );
+
+    // Prefer coarse label for router routine check when configured.
+    const routeCategory =
+      agentCfg.router.preferCoarseForRouting && taxonomy.level === "coarse"
+        ? triage.category
+        : triage.category;
+    void routeCategory;
+
     stage = "router";
     const route = routeDecision(triage, {
       escalateNoul: jev.typesafe?.escalate.noul ?? null,
@@ -113,7 +140,16 @@ export async function POST(req: NextRequest) {
 
     const judgments: ItemJudgments = {};
     if (jev.typesafe) {
-      judgments.triage = triageJudgmentsFromTypesafe(jev.typesafe);
+      judgments.triage = enrichTriageJudgments(
+        triageJudgmentsFromTypesafe(jev.typesafe, {
+          bandCfg: bands,
+          taxonomy,
+          beam: beam || undefined,
+        }),
+        triage,
+        agentCfg,
+        beam
+      );
     }
 
     stage = "persist";
@@ -140,7 +176,11 @@ export async function POST(req: NextRequest) {
       itemId,
       triage.jev.model,
       "triage.classify",
-      JSON.stringify(triage)
+      JSON.stringify({
+        ...triage,
+        taxonomy,
+        anyUncertain: judgments.triage?.anyUncertain,
+      })
     );
     await audit(
       itemId,
@@ -160,21 +200,29 @@ export async function POST(req: NextRequest) {
     );
 
     stage = "obligations";
-    const obligations = agentCfg.draft.enabled
-      ? await extractObligations(redacted, triage, {
+    const { obligations: rawObs, cascade } = agentCfg.draft.enabled
+      ? await extractObligationsCascade(redacted, triage, {
           systemPrompt: agentCfg.draft.obligationSystemPrompt,
+          cascadeEnabled: agentCfg.draft.sdeCascadeEnabled,
+          fireThreshold: agentCfg.draft.sdeFireThreshold,
         })
-      : [];
+      : {
+          obligations: [],
+          cascade: {
+            rung: "skipped" as const,
+            verified: false,
+          },
+        };
     await audit(
       itemId,
-      bigDeployment(),
+      cascade.model || bigDeployment(),
       "obligations.extract",
-      `${obligations.length} obligation(s) extracted`
+      `${rawObs.length} obligation(s) · cascade rung=${cascade.rung}`
     );
 
     stage = "memo";
     const { memo, modelUsed } = agentCfg.draft.enabled
-      ? await draftMemo(redacted, triage, obligations, route.fastPath, {
+      ? await draftMemo(redacted, triage, rawObs, route.fastPath, {
           systemPrompt: resolveMemoSystemPrompt(agentCfg),
         })
       : {
@@ -189,69 +237,106 @@ export async function POST(req: NextRequest) {
     );
 
     stage = "confidence";
-    const confidence = await jevConfidence(memo, obligations, triage, origin);
+    let confidence = await jevConfidence(
+      memo,
+      rawObs,
+      triage,
+      origin,
+      agentCfg.confidence
+    );
 
-    let grounding = null;
-    if (
-      agentCfg.grounding.enabled &&
-      typesafeConfigured() &&
-      obligations.length > 0
-    ) {
-      stage = "grounding";
-      try {
-        const g = await typesafeGroundObligations({
-          source: redacted,
-          obligations,
-          memo,
-        });
-        const softFail =
-          g.overallSupported < agentCfg.grounding.supportThreshold ||
-          g.inventedClaims > agentCfg.grounding.inventedThreshold;
-        judgments.grounding = groundingJudgmentsFromResult(g, softFail);
-        grounding = {
-          model: g.model,
-          overallSupported: g.overallSupported,
-          inventedClaims: g.inventedClaims,
-          unsupportedCount: g.unsupportedCount,
-          obligations: g.obligations,
-          softFail,
-          latencyMs: g.latencyMs,
-        };
-        await audit(
-          itemId,
-          g.model,
-          "grounding.check",
-          JSON.stringify({
-            model: g.model,
-            overallSupported: g.overallSupported,
-            inventedClaims: g.inventedClaims,
-            unsupportedCount: g.unsupportedCount,
-            softFail,
-            details: `${g.unsupportedCount} unsupported obligation(s); inventedClaims noul ${g.inventedClaims.toFixed(2)}`,
-          })
-        );
-        if (softFail) {
-          confidence.score = Math.min(confidence.score, 0.49);
-          confidence.reasons.push(
-            `Grounding soft-fail (supported ${g.overallSupported.toFixed(2)}, invented ${g.inventedClaims.toFixed(2)})`
-          );
-        } else if (g.unsupportedCount > 0) {
-          confidence.score = Math.min(confidence.score, 0.75);
-          confidence.reasons.push(
-            `${g.unsupportedCount} obligation(s) weakly supported`
-          );
-        }
-      } catch (e) {
-        console.error(
-          "[pipeline] grounding unavailable:",
-          (e as Error).message?.slice(0, 120)
-        );
-      }
+    stage = "enhance";
+    const enhanced = await runPostDraftEnhancements({
+      source: redacted,
+      title: cleanTitle,
+      memo,
+      obligations: rawObs,
+      triage,
+      agentCfg,
+      cascade,
+      existingJudgments: judgments,
+    });
+    Object.assign(judgments, enhanced.judgments);
+    confidence = applyConfidencePatch(confidence, enhanced.confidencePatch);
+    const obligations = enhanced.obligations;
+    const grounding = enhanced.grounding;
+
+    if (grounding) {
+      await audit(
+        itemId,
+        grounding.model,
+        "grounding.check",
+        JSON.stringify({
+          model: grounding.model,
+          overallSupported: grounding.overallSupported,
+          inventedClaims: grounding.inventedClaims,
+          unsupportedCount: grounding.unsupportedCount,
+          softFail: grounding.softFail,
+          verdictCounts: grounding.verdictCounts,
+          needsReview: grounding.needsReview,
+        })
+      );
+    }
+    if (judgments.hazard) {
+      await audit(
+        itemId,
+        judgments.hazard.model,
+        "hazard.screen",
+        JSON.stringify(judgments.hazard)
+      );
+    }
+    if (judgments.playbook) {
+      await audit(
+        itemId,
+        judgments.playbook.model,
+        "playbook.coverage",
+        JSON.stringify({
+          playbookId: judgments.playbook.playbookId,
+          meanCoverage: judgments.playbook.meanCoverage,
+          missing: judgments.playbook.missingSteps,
+        })
+      );
+    }
+    if (judgments.dueDates) {
+      await audit(
+        itemId,
+        "typesafe",
+        "due_date.extract",
+        JSON.stringify({
+          count: judgments.dueDates.extractions.length,
+          anyNeedsReview: judgments.dueDates.anyNeedsReview,
+        })
+      );
+    }
+    if (judgments.dedupe) {
+      await audit(
+        itemId,
+        judgments.dedupe.model,
+        "obligations.dedupe",
+        JSON.stringify({
+          pairs: judgments.dedupe.pairs.length,
+          merges: judgments.dedupe.mergeSuggestions.length,
+        })
+      );
+    }
+    if (judgments.cascade) {
+      await audit(
+        itemId,
+        judgments.cascade.model || "cascade",
+        "cascade.rung",
+        JSON.stringify(judgments.cascade)
+      );
     }
 
     judgments.confidence = confidenceJudgmentsFromScore({
       ...confidence,
       model: confidence.model,
+      weights: {
+        weightGrounded: agentCfg.confidence.weightGrounded,
+        weightComplete: agentCfg.confidence.weightComplete,
+        weightActionable: agentCfg.confidence.weightActionable,
+        weightOverall: agentCfg.confidence.weightOverall,
+      },
     });
 
     await audit(
@@ -265,15 +350,30 @@ export async function POST(req: NextRequest) {
     const gate = gateDecision(confidence.score, {
       autoApproveAbove: agentCfg.gate.autoApproveAbove,
       humanConfirmAbove: agentCfg.gate.humanConfirmAbove,
+      forceConfirmOnUncertain: agentCfg.gate.forceConfirmOnUncertain,
+      anyUncertain: enhanced.confidencePatch.anyUncertain,
+      dueDateNeedsReview: enhanced.confidencePatch.dueDateNeedsReview,
+      dueDateForceConfirm: agentCfg.draft.dueDateForceConfirm,
+      hazardDisposition: enhanced.confidencePatch.hazardDisposition,
+      groundingNeedsReview: enhanced.confidencePatch.groundingNeedsReview,
     });
     await audit(itemId, "gate", `gate.${gate.status}`, gate.label);
 
     stage = "persist_results";
     for (const o of obligations) {
       await query(
-        `INSERT INTO regpilot_obligations(item_id, owner, action, due_date, source_quote)
-         VALUES ($1,$2,$3,$4,$5)`,
-        [itemId, o.owner, o.action, o.due_date, o.source_quote]
+        `INSERT INTO regpilot_obligations(item_id, owner, action, due_date, source_quote, due_date_iso, date_confidence, needs_review)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [
+          itemId,
+          o.owner,
+          o.action,
+          o.due_date,
+          o.source_quote,
+          o.due_date_iso ?? null,
+          o.date_confidence ?? null,
+          o.needs_review ?? false,
+        ]
       );
     }
     await query(
@@ -302,11 +402,13 @@ export async function POST(req: NextRequest) {
         preset: agentCfg.preset,
         hasGrounding: Boolean(judgments.grounding),
         hasConfidence: Boolean(judgments.confidence),
+        hasHazard: Boolean(judgments.hazard),
+        hasPlaybook: Boolean(judgments.playbook),
       })
     );
 
     return NextResponse.json({
-      blocked: false,
+      blocked: gate.status === "blocked",
       itemId,
       guardrail: {
         piiFound: guardrail.piiFound,
@@ -320,6 +422,8 @@ export async function POST(req: NextRequest) {
         jurisdiction: triage.jurisdiction,
         confidence: triage.confidence,
         rationale: triage.rationale,
+        taxonomy,
+        anyUncertain: judgments.triage?.anyUncertain,
       },
       route: { fastPath: route.fastPath, model: route.model, reason: route.reason },
       jev: { model: triage.jev.model, latencyMs: triage.jev.latencyMs },
@@ -328,6 +432,7 @@ export async function POST(req: NextRequest) {
       modelUsed,
       confidence,
       grounding,
+      cascade,
       gate,
       status: gate.status,
       preset: agentCfg.preset,

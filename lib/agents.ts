@@ -1,5 +1,6 @@
 // Operator-editable agent policy + workflow catalog.
-// Thresholds / prompts here drive guardrail / router / grounding / gate / draft.
+// Thresholds / prompts here drive guardrail / router / grounding / gate / draft
+// plus TypeSafe cookbook enhancements (bands, dates, cascade, hazard, etc.).
 
 export type PolicyPresetId =
   | "balanced"
@@ -15,7 +16,10 @@ export type AgentId =
   | "draft"
   | "grounding"
   | "confidence"
-  | "gate";
+  | "gate"
+  | "hazard"
+  | "playbook"
+  | "dedupe";
 
 export type ConsoleSettings = {
   orgName: string;
@@ -42,12 +46,23 @@ export type AgentConfig = {
     escalateFullPathThreshold: number;
     fastPathMinConfidence: number;
     escalateConfidenceCeiling: number;
+    /** Mid-range noul band → uncertain. */
+    noulUncertainLow: number;
+    noulUncertainHigh: number;
+    /** Choice confidence below this → uncertain band. */
+    choiceMinConfidence: number;
+    /** Prefer coarse parent when fine category confidence below this. */
+    coarseTaxonomyCutoff: number;
+    /** Run Domain→Framework→Topic beam classify. */
+    beamClassifyEnabled: boolean;
   };
   router: {
     enabled: boolean;
     label: string;
     description: string;
     routineCategories: string[];
+    /** Prefer coarse taxonomy label for routine routing when level=coarse. */
+    preferCoarseForRouting: boolean;
   };
   draft: {
     enabled: boolean;
@@ -55,6 +70,15 @@ export type AgentConfig = {
     description: string;
     obligationSystemPrompt: string;
     memoSystemPrompt: string;
+    /** Azure small → TypeSafe verify → Azure big cascade. */
+    sdeCascadeEnabled: boolean;
+    /** Escalate when any field-wrongness noul ≥ this. */
+    sdeFireThreshold: number;
+    /** Typed due-date extraction after obligation extract. */
+    dueDateExtractEnabled: boolean;
+    dueDateReviewBelow: number;
+    /** Force gate human confirm when any due date needs_review. */
+    dueDateForceConfirm: boolean;
   };
   grounding: {
     enabled: boolean;
@@ -62,11 +86,18 @@ export type AgentConfig = {
     description: string;
     supportThreshold: number;
     inventedThreshold: number;
+    /** Citation Choice auto-accept confidence. */
+    citationAutoAccept: number;
   };
   confidence: {
     enabled: boolean;
     label: string;
     description: string;
+    /** Editable composite weights (renormalized). */
+    weightGrounded: number;
+    weightComplete: number;
+    weightActionable: number;
+    weightOverall: number;
   };
   gate: {
     enabled: boolean;
@@ -74,6 +105,27 @@ export type AgentConfig = {
     description: string;
     autoApproveAbove: number;
     humanConfirmAbove: number;
+    /** Force pending_review when any triage/gate band is uncertain. */
+    forceConfirmOnUncertain: boolean;
+  };
+  hazard: {
+    enabled: boolean;
+    label: string;
+    description: string;
+    blockSeverityAbove: number;
+    reviewSeverityAbove: number;
+    hazardNoulBlock: number;
+  };
+  playbook: {
+    enabled: boolean;
+    label: string;
+    description: string;
+    coveredThreshold: number;
+  };
+  dedupe: {
+    enabled: boolean;
+    label: string;
+    description: string;
   };
 };
 
@@ -114,10 +166,15 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
     enabled: true,
     label: "Triage agent (System One)",
     description:
-      "TypeSafe Choice + Noul judgments for category, urgency, jurisdiction, and escalate.",
+      "TypeSafe Choice + Noul judgments for category, urgency, jurisdiction, escalate, uncertainty bands, coarse taxonomy, beam.",
     escalateFullPathThreshold: 0.75,
     fastPathMinConfidence: 0.8,
     escalateConfidenceCeiling: 0.85,
+    noulUncertainLow: 0.3,
+    noulUncertainHigh: 0.7,
+    choiceMinConfidence: 0.55,
+    coarseTaxonomyCutoff: 0.7,
+    beamClassifyEnabled: true,
   },
   router: {
     enabled: true,
@@ -125,41 +182,75 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
     description:
       "Rules over triage + escalate noul. Critical / escalate → full Azure; high-conf routine → fast path.",
     routineCategories: ["Consumer Compliance", "Other", "Operational Risk"],
+    preferCoarseForRouting: true,
   },
   draft: {
     enabled: true,
     label: "Draft agent (Azure)",
     description:
-      "Azure OpenAI extracts obligations (JSON) and drafts the regulatory memo. System One does not generate prose.",
+      "Azure OpenAI extracts obligations (optional SDE cascade) and drafts the memo. Typed due-date extract via TypeSafe.",
     obligationSystemPrompt: DEFAULT_OBLIGATION_PROMPT,
     memoSystemPrompt: DEFAULT_MEMO_PROMPT,
+    sdeCascadeEnabled: true,
+    sdeFireThreshold: 0.7,
+    dueDateExtractEnabled: true,
+    dueDateReviewBelow: 0.6,
+    dueDateForceConfirm: true,
   },
   grounding: {
     enabled: true,
     label: "Grounding agent (System One)",
     description:
-      "TypeSafe Nouls check each obligation and the memo against the redacted source. Soft-fails cap confidence.",
+      "Citation-grade locate + Choice (supports/contradicts/says_nothing/fabricated). Soft-fails cap confidence.",
     supportThreshold: 0.55,
     inventedThreshold: 0.55,
+    citationAutoAccept: 0.8,
   },
   confidence: {
     enabled: true,
     label: "Confidence agent (System One)",
     description:
-      "Composite of grounded / complete / actionable nouls plus an overall quality score.",
+      "Composite of grounded / complete / actionable nouls plus overall score. Weights editable; recompute without re-inference.",
+    weightGrounded: 0.25,
+    weightComplete: 0.25,
+    weightActionable: 0.25,
+    weightOverall: 0.25,
   },
   gate: {
     enabled: true,
     label: "Confidence gate",
     description:
-      "Deterministic thresholds: auto-approve, human confirm, or needs-work before export.",
+      "Deterministic thresholds: auto-approve, human confirm, or needs-work. Uncertain bands force confirm.",
     autoApproveAbove: 0.9,
     humanConfirmAbove: 0.5,
+    forceConfirmOnUncertain: true,
+  },
+  hazard: {
+    enabled: true,
+    label: "Outbound hazard screen",
+    description:
+      "After memo draft: hazard nouls + harm severity → pass / review / block before gate.",
+    blockSeverityAbove: 3.2,
+    reviewSeverityAbove: 1.8,
+    hazardNoulBlock: 0.7,
+  },
+  playbook: {
+    enabled: true,
+    label: "Playbook coverage",
+    description:
+      "Batched TypeSafe Noul/Score per playbook checklist step; soft-suggest missing steps.",
+    coveredThreshold: 0.55,
+  },
+  dedupe: {
+    enabled: true,
+    label: "Obligation dedupe",
+    description:
+      "Score alignment (same/related/different) + field nouls for Review curator merges.",
   },
 };
 
 export type WorkflowStep = {
-  id: AgentId | "intake" | "human" | "export";
+  id: AgentId | "intake" | "human" | "export" | "eval";
   title: string;
   role: string;
   implementation: string;
@@ -193,7 +284,7 @@ export const WORKFLOW_STEPS: WorkflowStep[] = [
   {
     id: "triage",
     title: "Triage",
-    role: "Typed category / urgency / jurisdiction + escalate noul.",
+    role: "Typed category / urgency / jurisdiction + escalate noul + uncertainty bands + coarse/beam.",
     implementation: "lib/jev.ts#jevClassify · lib/typesafe.ts#typesafeTriage",
     apis: ["POST /api/triage", "POST /api/pipeline"],
     runtime: "typesafe",
@@ -211,25 +302,52 @@ export const WORKFLOW_STEPS: WorkflowStep[] = [
   {
     id: "draft",
     title: "Draft",
-    role: "Obligation extraction + memo generation on Azure OpenAI.",
-    implementation: "lib/jev.ts#extractObligations · lib/jev.ts#draftMemo · lib/azure.ts",
+    role: "Obligation extraction (SDE cascade) + due dates + memo generation.",
+    implementation: "lib/jev.ts#extractObligationsCascade · lib/jev.ts#draftMemo",
     apis: ["POST /api/analyze", "POST /api/pipeline"],
     runtime: "azure",
     agentKey: "draft",
   },
   {
+    id: "dedupe",
+    title: "Obligation dedupe",
+    role: "Alignment score + field nouls for curator merges.",
+    implementation: "lib/typesafe.ts#typesafeDedupeObligations",
+    apis: ["POST /api/analyze", "POST /api/pipeline"],
+    runtime: "typesafe",
+    agentKey: "dedupe",
+  },
+  {
     id: "grounding",
     title: "Grounding",
-    role: "Citation-style check of obligations and memo vs source.",
+    role: "Citation-grade check of obligations and memo vs source.",
     implementation: "lib/typesafe.ts#typesafeGroundObligations",
     apis: ["POST /api/analyze", "POST /api/pipeline"],
     runtime: "typesafe",
     agentKey: "grounding",
   },
   {
+    id: "playbook",
+    title: "Playbook coverage",
+    role: "Coverage vector over framework checklist steps.",
+    implementation: "lib/typesafe.ts#typesafePlaybookCoverage",
+    apis: ["POST /api/analyze", "POST /api/pipeline"],
+    runtime: "typesafe",
+    agentKey: "playbook",
+  },
+  {
+    id: "hazard",
+    title: "Hazard screen",
+    role: "Outbound memo hazard nouls + severity before gate.",
+    implementation: "lib/typesafe.ts#typesafeMemoHazard",
+    apis: ["POST /api/analyze", "POST /api/pipeline"],
+    runtime: "typesafe",
+    agentKey: "hazard",
+  },
+  {
     id: "confidence",
     title: "Confidence",
-    role: "System One quality score with reasons; may be soft-capped by grounding.",
+    role: "System One quality score with editable weights; may be soft-capped.",
     implementation: "lib/jev.ts#jevConfidence · lib/typesafe.ts#typesafeConfidence",
     apis: ["POST /api/analyze", "POST /api/pipeline"],
     runtime: "typesafe",
@@ -238,7 +356,7 @@ export const WORKFLOW_STEPS: WorkflowStep[] = [
   {
     id: "gate",
     title: "Gate",
-    role: "Auto-approve, pending review, or needs-work.",
+    role: "Auto-approve, pending review, or needs-work (uncertain bands force confirm).",
     implementation: "lib/jev.ts#gateDecision",
     apis: ["POST /api/analyze", "POST /api/pipeline"],
     runtime: "rules",
@@ -247,7 +365,7 @@ export const WORKFLOW_STEPS: WorkflowStep[] = [
   {
     id: "human",
     title: "Human review",
-    role: "Approve, request changes, re-analyze, or bulk-clear the queue.",
+    role: "Approve, request changes, re-analyze, filter uncertain, merge duplicates.",
     implementation: "app/review/page.tsx · app/items/[id]/page.tsx · POST /api/review",
     apis: ["GET/POST /api/review", "GET /api/detail"],
     runtime: "human",
@@ -255,10 +373,18 @@ export const WORKFLOW_STEPS: WorkflowStep[] = [
   {
     id: "export",
     title: "Examiner export",
-    role: "Downloadable markdown/JSON package with audit + grounding.",
+    role: "Downloadable markdown/JSON package with audit + grounding + coverage.",
     implementation: "lib/export.ts · GET /api/export · /items/[id]",
     apis: ["GET /api/export", "GET /api/detail"],
     runtime: "ui",
+  },
+  {
+    id: "eval",
+    title: "Calibration / eval",
+    role: "Replay samples; report precision@band; suggest thresholds. No production write.",
+    implementation: "app/api/eval/route.ts · Settings",
+    apis: ["POST /api/eval", "GET /api/eval"],
+    runtime: "typesafe",
   },
 ];
 
@@ -270,6 +396,43 @@ function clamp01(n: number, fallback: number): number {
 function clip(s: unknown, max: number, fallback: string): string {
   const v = typeof s === "string" ? s : fallback;
   return v.slice(0, max) || fallback;
+}
+
+function mergeAgentBlock<T extends Record<string, unknown>>(
+  base: T,
+  patch: Partial<T> | undefined,
+  numericKeys: (keyof T)[]
+): T {
+  if (!patch) return base;
+  const next = { ...base, ...patch } as T;
+  for (const k of numericKeys) {
+    const fallback = base[k] as number;
+    const raw = patch[k];
+    if (typeof raw === "number") {
+      (next as Record<string, unknown>)[k as string] = clamp01(raw, fallback);
+    } else if (raw === undefined) {
+      (next as Record<string, unknown>)[k as string] = fallback;
+    }
+  }
+  if ("enabled" in base) {
+    (next as { enabled: boolean }).enabled =
+      (patch as { enabled?: boolean }).enabled !== false;
+  }
+  if ("label" in base && "label" in patch) {
+    (next as { label: string }).label = clip(
+      (patch as { label?: string }).label,
+      80,
+      (base as { label: string }).label
+    );
+  }
+  if ("description" in base && "description" in patch) {
+    (next as { description: string }).description = clip(
+      (patch as { description?: string }).description,
+      500,
+      (base as { description: string }).description
+    );
+  }
+  return next;
 }
 
 export function normalizeAgentConfig(raw: unknown): AgentConfig {
@@ -304,43 +467,21 @@ export function normalizeAgentConfig(raw: unknown): AgentConfig {
     base.preset = r.preset;
   }
 
-  if (r.guardrail) {
-    base.guardrail = {
-      ...base.guardrail,
-      ...r.guardrail,
-      injectionBlockThreshold: clamp01(
-        r.guardrail.injectionBlockThreshold ??
-          base.guardrail.injectionBlockThreshold,
-        base.guardrail.injectionBlockThreshold
-      ),
-      enabled: r.guardrail.enabled !== false,
-      label: clip(r.guardrail.label, 80, base.guardrail.label),
-      description: clip(r.guardrail.description, 500, base.guardrail.description),
-    };
-  }
-  if (r.triage) {
-    base.triage = {
-      ...base.triage,
-      ...r.triage,
-      escalateFullPathThreshold: clamp01(
-        r.triage.escalateFullPathThreshold ??
-          base.triage.escalateFullPathThreshold,
-        base.triage.escalateFullPathThreshold
-      ),
-      fastPathMinConfidence: clamp01(
-        r.triage.fastPathMinConfidence ?? base.triage.fastPathMinConfidence,
-        base.triage.fastPathMinConfidence
-      ),
-      escalateConfidenceCeiling: clamp01(
-        r.triage.escalateConfidenceCeiling ??
-          base.triage.escalateConfidenceCeiling,
-        base.triage.escalateConfidenceCeiling
-      ),
-      enabled: r.triage.enabled !== false,
-      label: clip(r.triage.label, 80, base.triage.label),
-      description: clip(r.triage.description, 500, base.triage.description),
-    };
-  }
+  base.guardrail = mergeAgentBlock(base.guardrail, r.guardrail, [
+    "injectionBlockThreshold",
+  ]);
+  base.triage = {
+    ...mergeAgentBlock(base.triage, r.triage, [
+      "escalateFullPathThreshold",
+      "fastPathMinConfidence",
+      "escalateConfidenceCeiling",
+      "noulUncertainLow",
+      "noulUncertainHigh",
+      "choiceMinConfidence",
+      "coarseTaxonomyCutoff",
+    ]),
+    beamClassifyEnabled: r.triage?.beamClassifyEnabled !== false,
+  };
   if (r.router) {
     const cats = Array.isArray(r.router.routineCategories)
       ? r.router.routineCategories.map(String).slice(0, 12)
@@ -350,6 +491,7 @@ export function normalizeAgentConfig(raw: unknown): AgentConfig {
       ...r.router,
       routineCategories: cats.length ? cats : base.router.routineCategories,
       enabled: r.router.enabled !== false,
+      preferCoarseForRouting: r.router.preferCoarseForRouting !== false,
       label: clip(r.router.label, 80, base.router.label),
       description: clip(r.router.description, 500, base.router.description),
     };
@@ -370,52 +512,62 @@ export function normalizeAgentConfig(raw: unknown): AgentConfig {
         4000,
         base.draft.memoSystemPrompt
       ),
+      sdeCascadeEnabled: r.draft.sdeCascadeEnabled !== false,
+      sdeFireThreshold: clamp01(
+        r.draft.sdeFireThreshold ?? base.draft.sdeFireThreshold,
+        base.draft.sdeFireThreshold
+      ),
+      dueDateExtractEnabled: r.draft.dueDateExtractEnabled !== false,
+      dueDateReviewBelow: clamp01(
+        r.draft.dueDateReviewBelow ?? base.draft.dueDateReviewBelow,
+        base.draft.dueDateReviewBelow
+      ),
+      dueDateForceConfirm: r.draft.dueDateForceConfirm !== false,
     };
   }
-  if (r.grounding) {
-    base.grounding = {
-      ...base.grounding,
-      ...r.grounding,
-      supportThreshold: clamp01(
-        r.grounding.supportThreshold ?? base.grounding.supportThreshold,
-        base.grounding.supportThreshold
-      ),
-      inventedThreshold: clamp01(
-        r.grounding.inventedThreshold ?? base.grounding.inventedThreshold,
-        base.grounding.inventedThreshold
-      ),
-      enabled: r.grounding.enabled !== false,
-      label: clip(r.grounding.label, 80, base.grounding.label),
-      description: clip(r.grounding.description, 500, base.grounding.description),
-    };
+  base.grounding = mergeAgentBlock(base.grounding, r.grounding, [
+    "supportThreshold",
+    "inventedThreshold",
+    "citationAutoAccept",
+  ]);
+  base.confidence = mergeAgentBlock(base.confidence, r.confidence, [
+    "weightGrounded",
+    "weightComplete",
+    "weightActionable",
+    "weightOverall",
+  ]);
+  base.gate = {
+    ...mergeAgentBlock(base.gate, r.gate, [
+      "autoApproveAbove",
+      "humanConfirmAbove",
+    ]),
+    forceConfirmOnUncertain: r.gate?.forceConfirmOnUncertain !== false,
+  };
+  base.hazard = mergeAgentBlock(base.hazard, r.hazard, [
+    "blockSeverityAbove",
+    "reviewSeverityAbove",
+    "hazardNoulBlock",
+  ]);
+  // severity score is 0..4 — clamp specially
+  if (r.hazard) {
+    const bs = r.hazard.blockSeverityAbove;
+    const rs = r.hazard.reviewSeverityAbove;
+    if (typeof bs === "number" && !Number.isNaN(bs)) {
+      base.hazard.blockSeverityAbove = Math.min(4, Math.max(0, bs));
+    }
+    if (typeof rs === "number" && !Number.isNaN(rs)) {
+      base.hazard.reviewSeverityAbove = Math.min(4, Math.max(0, rs));
+    }
   }
-  if (r.confidence) {
-    base.confidence = {
-      ...base.confidence,
-      enabled: r.confidence.enabled !== false,
-      label: clip(r.confidence.label, 80, base.confidence.label),
-      description: clip(
-        r.confidence.description,
-        500,
-        base.confidence.description
-      ),
-    };
-  }
-  if (r.gate) {
-    base.gate = {
-      ...base.gate,
-      ...r.gate,
-      autoApproveAbove: clamp01(
-        r.gate.autoApproveAbove ?? base.gate.autoApproveAbove,
-        base.gate.autoApproveAbove
-      ),
-      humanConfirmAbove: clamp01(
-        r.gate.humanConfirmAbove ?? base.gate.humanConfirmAbove,
-        base.gate.humanConfirmAbove
-      ),
-      enabled: r.gate.enabled !== false,
-      label: clip(r.gate.label, 80, base.gate.label),
-      description: clip(r.gate.description, 500, base.gate.description),
+  base.playbook = mergeAgentBlock(base.playbook, r.playbook, [
+    "coveredThreshold",
+  ]);
+  if (r.dedupe) {
+    base.dedupe = {
+      ...base.dedupe,
+      enabled: r.dedupe.enabled !== false,
+      label: clip(r.dedupe.label, 80, base.dedupe.label),
+      description: clip(r.dedupe.description, 500, base.dedupe.description),
     };
   }
 
@@ -432,4 +584,32 @@ export function resolveMemoSystemPrompt(cfg: AgentConfig): string {
     /\{\{MEMO_SECTIONS\}\}/g,
     sections.replace(/\n/g, ", ")
   );
+}
+
+/** Renormalize confidence weights and blend raw judgments into a score. */
+export function compositeConfidenceScore(opts: {
+  grounded: number;
+  complete: number;
+  actionable: number;
+  overall01: number;
+  weights: {
+    weightGrounded: number;
+    weightComplete: number;
+    weightActionable: number;
+    weightOverall: number;
+  };
+}): number {
+  const w = opts.weights;
+  const sum =
+    w.weightGrounded +
+    w.weightComplete +
+    w.weightActionable +
+    w.weightOverall;
+  const norm = sum > 0 ? sum : 1;
+  const score =
+    (w.weightGrounded / norm) * opts.grounded +
+    (w.weightComplete / norm) * opts.complete +
+    (w.weightActionable / norm) * opts.actionable +
+    (w.weightOverall / norm) * opts.overall01;
+  return Math.min(1, Math.max(0, score));
 }

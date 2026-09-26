@@ -249,7 +249,102 @@ export default function SettingsPage() {
               />
             </label>
           </Card>
+
+          <Card>
+            <SectionTitle eyebrow="Calibration">Eval harness</SectionTitle>
+            <p className="mb-3 text-xs text-[var(--ink-mute)]">
+              Replay built-in samples through TypeSafe triage. Reports
+              precision@band and suggests threshold tweaks. Does not write
+              production items.
+            </p>
+            <EvalPanel />
+          </Card>
         </div>
+      )}
+    </div>
+  );
+}
+
+function EvalPanel() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState<{
+    runId?: number;
+    suggestions?: string[];
+    summary?: {
+      sampleCount: number;
+      precisionAtCertain: number | null;
+      uncertainRate: number;
+    };
+  } | null>(null);
+  const [runs, setRuns] = useState<
+    { id: number; created_at: string; sample_count: number }[]
+  >([]);
+
+  useEffect(() => {
+    fetch("/api/eval")
+      .then((r) => r.json())
+      .then((d) => setRuns(d.runs || []))
+      .catch(() => undefined);
+  }, [result]);
+
+  async function runEval() {
+    setBusy(true);
+    setError("");
+    try {
+      const r = await fetch("/api/eval", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ limit: 4 }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Eval failed");
+      setResult(d);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={runEval}
+        disabled={busy}
+        className="rounded-xl bg-[var(--ink)] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+      >
+        {busy ? "Running eval…" : "Run calibration (4 samples)"}
+      </button>
+      {error && (
+        <p className="mt-2 text-sm text-[var(--coral)]">{error}</p>
+      )}
+      {result?.summary && (
+        <div className="mt-3 space-y-1 text-sm text-[var(--ink-2)]">
+          <div>
+            Run #{result.runId} · n={result.summary.sampleCount} · uncertain{" "}
+            {(result.summary.uncertainRate * 100).toFixed(0)}% · precision@certain{" "}
+            {result.summary.precisionAtCertain != null
+              ? `${(result.summary.precisionAtCertain * 100).toFixed(0)}%`
+              : "n/a"}
+          </div>
+          {(result.suggestions || []).map((s, i) => (
+            <p key={i} className="text-xs text-[var(--ink-mute)]">
+              → {s}
+            </p>
+          ))}
+        </div>
+      )}
+      {runs.length > 0 && (
+        <ul className="mt-3 space-y-1 text-xs text-[var(--ink-mute)]">
+          {runs.slice(0, 5).map((r) => (
+            <li key={r.id}>
+              #{r.id} · {new Date(r.created_at).toLocaleString()} ·{" "}
+              {r.sample_count} samples
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

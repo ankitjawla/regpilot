@@ -8,6 +8,12 @@ import {
   triageJudgmentsFromTypesafe,
   type ItemJudgments,
 } from "@/lib/provenance";
+import {
+  bandCfgFromAgent,
+  maybeBeamClassify,
+  enrichTriageJudgments,
+  taxonomyFromTriage,
+} from "@/lib/enhance";
 
 export async function POST(req: NextRequest) {
   if (rateLimited(clientIp(req))) {
@@ -36,16 +42,18 @@ export async function POST(req: NextRequest) {
       text.trim().replace(/\s+/g, " ").slice(0, 80);
 
     const origin = req.nextUrl.origin;
-
-    // --- Guardrail (TypeSafe System One → local jev → Azure; redaction happens
-    //     before ANY model sees the text)
-    const { guardrail, redacted, jev } = await jevGuardrail(text, origin);
-
     const agentCfg = await getAgentConfig().catch(() => DEFAULT_AGENT_CONFIG);
+    const bands = bandCfgFromAgent(agentCfg);
+
+    const { guardrail, redacted, jev } = await jevGuardrail(text, origin);
 
     if (guardrail.block) {
       const blockedJudgments: ItemJudgments | null = jev.typesafe
-        ? { triage: triageJudgmentsFromTypesafe(jev.typesafe) }
+        ? {
+            triage: triageJudgmentsFromTypesafe(jev.typesafe, {
+              bandCfg: bands,
+            }),
+          }
         : null;
       const rows = await query<{ id: number }>(
         `INSERT INTO regpilot_items
@@ -82,13 +90,21 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // --- Triage (reuses TypeSafe or local result from the guardrail — one call)
     const triage = await jevClassify(
       redacted,
       origin,
       jev.full,
       jev.typesafe
     );
+    const taxonomy = taxonomyFromTriage(
+      triage,
+      agentCfg.triage.coarseTaxonomyCutoff
+    );
+    const beam = await maybeBeamClassify(
+      redacted,
+      agentCfg.triage.beamClassifyEnabled
+    );
+
     const route = routeDecision(triage, {
       escalateNoul: jev.typesafe?.escalate.noul ?? null,
       escalateFullPathThreshold: agentCfg.triage.escalateFullPathThreshold,
@@ -97,8 +113,19 @@ export async function POST(req: NextRequest) {
       routineCategories: agentCfg.router.routineCategories,
     });
 
-    const judgments: ItemJudgments | null = jev.typesafe
-      ? { triage: triageJudgmentsFromTypesafe(jev.typesafe) }
+    let judgments: ItemJudgments | null = jev.typesafe
+      ? {
+          triage: enrichTriageJudgments(
+            triageJudgmentsFromTypesafe(jev.typesafe, {
+              bandCfg: bands,
+              taxonomy,
+              beam: beam || undefined,
+            }),
+            triage,
+            agentCfg,
+            beam
+          ),
+        }
       : null;
 
     const rows = await query<{ id: number }>(
@@ -121,7 +148,16 @@ export async function POST(req: NextRequest) {
     const itemId = rows[0].id;
 
     await audit(itemId, jev.model, "guardrail.pass", guardrail.reason);
-    await audit(itemId, triage.jev.model, "triage.classify", JSON.stringify(triage));
+    await audit(
+      itemId,
+      triage.jev.model,
+      "triage.classify",
+      JSON.stringify({
+        ...triage,
+        taxonomy,
+        anyUncertain: judgments?.triage?.anyUncertain,
+      })
+    );
     await audit(
       itemId,
       "router",
@@ -142,10 +178,15 @@ export async function POST(req: NextRequest) {
     const decisions = judgments?.triage
       ? {
           injectionNoul: judgments.triage.injectionNoul,
+          injectionBand: judgments.triage.injectionBand,
           escalateNoul: judgments.triage.escalateNoul,
+          escalateBand: judgments.triage.escalateBand,
           category: judgments.triage.category,
           urgency: judgments.triage.urgency,
           jurisdiction: judgments.triage.jurisdiction,
+          taxonomy: judgments.triage.taxonomy,
+          beam: judgments.triage.beam,
+          anyUncertain: judgments.triage.anyUncertain,
         }
       : null;
 
@@ -164,6 +205,8 @@ export async function POST(req: NextRequest) {
         jurisdiction: triage.jurisdiction,
         confidence: triage.confidence,
         rationale: triage.rationale,
+        taxonomy,
+        anyUncertain: judgments?.triage?.anyUncertain,
       },
       decisions,
       provenance: {

@@ -49,8 +49,12 @@ export async function GET(req: NextRequest) {
       action: string;
       due_date: string;
       source_quote: string;
+      due_date_iso: string | null;
+      date_confidence: number | null;
+      needs_review: boolean | null;
     }>(
-      `SELECT owner, action, due_date, source_quote FROM regpilot_obligations WHERE item_id=$1 ORDER BY id`,
+      `SELECT owner, action, due_date, source_quote, due_date_iso, date_confidence, needs_review
+       FROM regpilot_obligations WHERE item_id=$1 ORDER BY id`,
       [itemId]
     );
     const drafts = await query<{ memo_text: string; model_used: string }>(
