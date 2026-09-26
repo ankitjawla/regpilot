@@ -61,6 +61,7 @@ async function main() {
     fail("health", e.message);
   }
 
+  let approvedItemId = null;
   try {
     const { status, json, ms } = await req("POST", "/api/triage", {
       title: "Smoke SAR",
@@ -80,7 +81,27 @@ async function main() {
     assert(a.json.modelUsed, "modelUsed");
     assert(typeof a.json.confidence?.score === "number", "confidence score");
     assert((a.json.memo || "").length > 50, "memo too short");
+    if (a.json.grounding) {
+      assert(typeof a.json.grounding.overallSupported === "number", "grounding overall");
+      pass(
+        `grounding supported=${a.json.grounding.overallSupported.toFixed(2)} unsupported=${a.json.grounding.unsupportedCount}`
+      );
+    } else {
+      pass("grounding skipped (TypeSafe unavailable or no obligations)");
+    }
     pass(`analyze ${a.json.modelUsed} score=${a.json.confidence.score.toFixed(2)} ${a.ms}ms`);
+
+    const detail = await req("GET", `/api/detail?item_id=${json.itemId}`);
+    assert(detail.status === 200, `detail HTTP ${detail.status}`);
+    assert(detail.json.item?.id === json.itemId, "detail item id");
+    assert(Array.isArray(detail.json.obligations), "detail obligations");
+    pass("detail package");
+
+    const exp = await req("GET", `/api/export?item_id=${json.itemId}&format=json`);
+    assert(exp.status === 200, `export HTTP ${exp.status}`);
+    assert(exp.json.item?.id === json.itemId, "export item");
+    assert(typeof exp.json.memo === "string", "export memo");
+    pass("export json");
 
     const rev = await req("POST", "/api/review", {
       itemId: json.itemId,
@@ -89,9 +110,37 @@ async function main() {
     });
     assert(rev.status === 200, `review HTTP ${rev.status}`);
     assert(rev.json.status === "approved", "approved");
+    approvedItemId = json.itemId;
     pass("review approve");
   } catch (e) {
     fail("triage/analyze/review", e.message);
+  }
+
+  try {
+    const { status, json, ms } = await req("POST", "/api/pipeline", {
+      title: "Smoke pipeline LCR",
+      text:
+        "Federal Reserve notice: Meridian Trust Bank LCR fell to 95% in March stress. Treasury must file a liquidity contingency update with the FRB by April 15, 2026 and brief ALCO within five business days.",
+    });
+    assert(status === 200, `pipeline HTTP ${status}`);
+    assert(!json.blocked, "pipeline should not block");
+    assert(json.itemId, "pipeline itemId");
+    assert((json.memo || "").length > 40, "pipeline memo");
+    assert(typeof json.confidence?.score === "number", "pipeline confidence");
+    pass(`pipeline item=${json.itemId} score=${json.confidence.score.toFixed(2)} ${ms}ms`);
+
+    if (approvedItemId) {
+      const bulk = await req("POST", "/api/review", {
+        itemIds: [json.itemId],
+        decision: "approve",
+        note: "smoke bulk approve",
+      });
+      assert(bulk.status === 200, `bulk HTTP ${bulk.status}`);
+      assert(bulk.json.count === 1, "bulk count");
+      pass("bulk review approve");
+    }
+  } catch (e) {
+    fail("pipeline/bulk", e.message);
   }
 
   try {

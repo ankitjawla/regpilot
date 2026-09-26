@@ -194,3 +194,100 @@ export async function typesafeConfidence(opts: {
     overall: result.answers.overall,
   };
 }
+
+export type ObligationGrounding = {
+  index: number;
+  owner: string;
+  action: string;
+  supportedNoul: number;
+  supported: boolean;
+};
+
+export type TypesafeGroundingResult = {
+  model: string;
+  latencyMs: number;
+  overallSupported: number;
+  inventedClaims: number;
+  unsupportedCount: number;
+  obligations: ObligationGrounding[];
+};
+
+const GROUNDING_SUPPORT_THRESHOLD = 0.55;
+
+/** Verify extracted obligations against the redacted source (citation-style). */
+export async function typesafeGroundObligations(opts: {
+  source: string;
+  obligations: { owner: string; action: string; due_date: string; source_quote: string }[];
+  memo: string;
+}): Promise<TypesafeGroundingResult> {
+  const started = Date.now();
+  const slice = opts.obligations.slice(0, 8);
+  const questions: Record<string, ReturnType<typeof noul>> = {
+    overall: noul(
+      "Are the extracted obligations as a set supported by the source document without inventing owners, actions, or dates?",
+      {
+        true: "Obligations are grounded in the source",
+        false: "One or more obligations invent unsupported facts",
+      }
+    ),
+    invented: noul(
+      "Does the draft memo invent regulation citations, dates, or obligations not supported by the source or extracted obligations?",
+      {
+        true: "Memo invents unsupported material claims",
+        false: "Memo stays within the provided evidence",
+      }
+    ),
+  };
+
+  for (const [i, o] of slice.entries()) {
+    questions[`o${i}`] = noul(
+      {
+        question:
+          "Is this single obligation supported by the source document (owner/action/due date/quote)?",
+        obligation: {
+          owner: o.owner,
+          action: o.action,
+          due_date: o.due_date,
+          source_quote: o.source_quote,
+        },
+      },
+      {
+        true: "Supported by source text",
+        false: "Not supported or invents facts",
+      }
+    );
+  }
+
+  const result = await getClient().systemOne({
+    model: typesafeModel(),
+    state: {
+      source: opts.source.slice(0, 6000),
+      memo: opts.memo.slice(0, 3500),
+    },
+    questions,
+  });
+
+  const obligations: ObligationGrounding[] = slice.map((o, i) => {
+    const ans = result.answers[`o${i}`] as NoulResponse;
+    const supportedNoul = Number(ans?.noul ?? 0);
+    return {
+      index: i,
+      owner: o.owner,
+      action: o.action,
+      supportedNoul,
+      supported: supportedNoul >= GROUNDING_SUPPORT_THRESHOLD,
+    };
+  });
+
+  const overall = result.answers.overall as NoulResponse;
+  const invented = result.answers.invented as NoulResponse;
+
+  return {
+    model: result.model,
+    latencyMs: Date.now() - started,
+    overallSupported: Number(overall?.noul ?? 0),
+    inventedClaims: Number(invented?.noul ?? 0),
+    unsupportedCount: obligations.filter((o) => !o.supported).length,
+    obligations,
+  };
+}

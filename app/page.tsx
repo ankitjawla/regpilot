@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Card,
@@ -39,6 +39,7 @@ type Stats = {
   autoApprovedCount: number;
   approvedCount: number;
   criticalCount: number;
+  groundingSoftFailCount?: number;
   byCategory: { category: string; n: string }[];
   byStatus: { status: string; n: string }[];
   recent: {
@@ -73,6 +74,8 @@ type Stats = {
   }[];
 };
 
+const REFRESH_MS = 30_000;
+
 function fmtTime(iso: string) {
   try {
     return new Date(iso).toLocaleString(undefined, {
@@ -90,47 +93,61 @@ export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState("");
   const [jevMeta, setJevMeta] = useState<JevMeta | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadStats = useCallback(async (silent = false) => {
+    if (!silent) setRefreshing(true);
+    try {
+      const r = await fetch("/api/stats");
+      const d = await r.json();
+      if (d.error) {
+        setError(d.error);
+        setStats({
+          total: 0,
+          fastPathPct: 0,
+          avgConfidence: null,
+          pendingCount: 0,
+          blockedCount: 0,
+          autoApprovedCount: 0,
+          approvedCount: 0,
+          criticalCount: 0,
+          groundingSoftFailCount: 0,
+          byCategory: [],
+          byStatus: [],
+          recent: [],
+          needsYou: [],
+          audit: [],
+        });
+      } else {
+        setError("");
+        setStats(d);
+      }
+      setUpdatedAt(new Date());
+    } catch {
+      setError("Could not load dashboard.");
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/stats")
-      .then((r) => r.json())
-      .then((d) => {
-        if (cancelled) return;
-        if (d.error) {
-          setError(d.error);
-          setStats({
-            total: 0,
-            fastPathPct: 0,
-            avgConfidence: null,
-            pendingCount: 0,
-            blockedCount: 0,
-            autoApprovedCount: 0,
-            approvedCount: 0,
-            criticalCount: 0,
-            byCategory: [],
-            byStatus: [],
-            recent: [],
-            needsYou: [],
-            audit: [],
-          });
-        } else {
-          setStats(d);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setError("Could not load dashboard.");
-      });
+    loadStats();
     fetch("/api/jevmeta")
       .then((r) => r.json())
       .then((d) => {
         if (!cancelled) setJevMeta(d);
       })
       .catch(() => {});
+    const id = window.setInterval(() => {
+      if (document.visibilityState === "visible") loadStats(true);
+    }, REFRESH_MS);
     return () => {
       cancelled = true;
+      window.clearInterval(id);
     };
-  }, []);
+  }, [loadStats]);
 
   const catMax = useMemo(() => {
     if (!stats?.byCategory?.length) return 1;
@@ -146,7 +163,20 @@ export default function Dashboard() {
         title="Overview"
         subtitle="TypeSafe System One triages and scores. Azure OpenAI drafts. Humans clear what the confidence gate holds back."
         actions={
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {updatedAt && (
+              <span className="font-mono text-[10px] text-[var(--ink-mute)]">
+                {refreshing ? "Refreshing…" : `Updated ${fmtTime(updatedAt.toISOString())}`}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => loadStats()}
+              disabled={refreshing}
+              className="inline-flex items-center rounded-xl border border-[var(--line)] bg-white px-3 py-2.5 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--paper-2)] disabled:opacity-50"
+            >
+              Refresh
+            </button>
             <Link
               href="/review"
               className="inline-flex items-center rounded-xl border border-[var(--line)] bg-white px-4 py-2.5 text-sm font-semibold text-[var(--ink)] hover:bg-[var(--paper-2)]"
@@ -194,7 +224,7 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <section className="rp-rise-2 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <section className="rp-rise-2 grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Stat
           label="Needs you"
           value={stats ? stats.pendingCount : "—"}
@@ -223,6 +253,12 @@ export default function Dashboard() {
           }
           sub={`${cleared} cleared · ${stats?.total ?? 0} total`}
           accent="sky"
+        />
+        <Stat
+          label="Grounding holds"
+          value={stats ? stats.groundingSoftFailCount ?? 0 : "—"}
+          sub="soft-fail checks (audit)"
+          accent="amber"
         />
       </section>
 
@@ -256,29 +292,24 @@ export default function Dashboard() {
           </p>
 
           <div className="mt-4 grid grid-cols-2 gap-2">
-            {(
-              jevMeta?.local?.tasks ||
-              jevMeta?.tasks ||
-              {}
-            ) &&
-              Object.entries(jevMeta?.local?.tasks || jevMeta?.tasks || {})
-                .slice(0, 4)
-                .map(([task, t]) => (
-                  <div
-                    key={task}
-                    className="rounded-xl border border-[var(--line)] bg-[var(--paper-2)] px-3 py-2.5"
-                  >
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-mute)]">
-                      {task}
-                    </div>
-                    <div className="font-display mt-0.5 text-xl font-semibold">
-                      {(t.accuracy * 100).toFixed(0)}%
-                    </div>
-                    <div className="text-[11px] text-[var(--ink-mute)]">
-                      local holdout
-                    </div>
+            {Object.entries(jevMeta?.local?.tasks || jevMeta?.tasks || {})
+              .slice(0, 4)
+              .map(([task, t]) => (
+                <div
+                  key={task}
+                  className="rounded-xl border border-[var(--line)] bg-[var(--paper-2)] px-3 py-2.5"
+                >
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-mute)]">
+                    {task}
                   </div>
-                ))}
+                  <div className="font-display mt-0.5 text-xl font-semibold">
+                    {(t.accuracy * 100).toFixed(0)}%
+                  </div>
+                  <div className="text-[11px] text-[var(--ink-mute)]">
+                    local holdout
+                  </div>
+                </div>
+              ))}
           </div>
 
           <div className="mt-4 rounded-xl border border-[var(--line)] bg-gradient-to-br from-[#f3fbf9] to-[#eef5fb] p-3">
@@ -290,6 +321,7 @@ export default function Dashboard() {
               <li>Escalate noul ≥ 0.75 on non-routine → full path</li>
               <li>High-conf routine Consumer/Ops → fast path</li>
               <li>Confidence &gt; 0.90 → auto-approve</li>
+              <li>Weak grounding → soft-cap confidence ≤ 0.49</li>
             </ul>
           </div>
         </Card>
@@ -356,7 +388,16 @@ export default function Dashboard() {
                     </span>
                   </div>
                   <div className="mt-1 truncate text-xs font-medium text-[var(--ink)]">
-                    {e.title || (e.item_id ? `Item #${e.item_id}` : e.actor)}
+                    {e.item_id ? (
+                      <Link
+                        href={`/items/${e.item_id}`}
+                        className="hover:underline"
+                      >
+                        {e.title || `Item #${e.item_id}`}
+                      </Link>
+                    ) : (
+                      e.title || e.actor
+                    )}
                   </div>
                   {e.detail && (
                     <div className="mt-0.5 line-clamp-2 text-[11px] text-[var(--ink-mute)]">
@@ -418,7 +459,7 @@ export default function Dashboard() {
                     >
                       <td className="max-w-[240px] py-3 pr-3">
                         <Link
-                          href="/review"
+                          href={`/items/${r.id}`}
                           className="font-semibold text-[var(--ink)] hover:underline"
                         >
                           {r.title}
@@ -462,26 +503,28 @@ export default function Dashboard() {
           ) : (
             <ul className="space-y-2">
               {stats.recent.map((r) => (
-                <li
-                  key={r.id}
-                  className="flex items-start justify-between gap-3 rounded-xl border border-[var(--line)] bg-[var(--paper-2)] px-3 py-2.5"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold">{r.title}</div>
-                    <div className="mt-0.5 flex flex-wrap gap-1.5">
-                      <Badge color="slate">{r.category || "—"}</Badge>
-                      <Badge color={r.fast_path ? "green" : "blue"}>
-                        {r.fast_path ? "fast" : "full"}
-                      </Badge>
-                      <UrgencyBadge urgency={r.urgency || "low"} />
+                <li key={r.id}>
+                  <Link
+                    href={`/items/${r.id}`}
+                    className="flex items-start justify-between gap-3 rounded-xl border border-[var(--line)] bg-[var(--paper-2)] px-3 py-2.5 transition hover:border-[var(--sage)] hover:bg-white"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold">{r.title}</div>
+                      <div className="mt-0.5 flex flex-wrap gap-1.5">
+                        <Badge color="slate">{r.category || "—"}</Badge>
+                        <Badge color={r.fast_path ? "green" : "blue"}>
+                          {r.fast_path ? "fast" : "full"}
+                        </Badge>
+                        <UrgencyBadge urgency={r.urgency || "low"} />
+                      </div>
                     </div>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <StatusBadge status={r.status} />
-                    <div className="mt-1 font-mono text-[10px] text-[var(--ink-mute)]">
-                      {fmtTime(r.created_at)}
+                    <div className="shrink-0 text-right">
+                      <StatusBadge status={r.status} />
+                      <div className="mt-1 font-mono text-[10px] text-[var(--ink-mute)]">
+                        {fmtTime(r.created_at)}
+                      </div>
                     </div>
-                  </div>
+                  </Link>
                 </li>
               ))}
             </ul>
