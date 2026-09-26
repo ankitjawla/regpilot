@@ -1,0 +1,188 @@
+"use client";
+
+import Link from "next/link";
+import { Badge, SectionTitle } from "@/components/ui";
+import type { AgentConfig, WorkflowStep } from "@/lib/agents";
+
+const RUNTIME_COLOR: Record<
+  WorkflowStep["runtime"],
+  "green" | "blue" | "slate" | "amber"
+> = {
+  typesafe: "green",
+  azure: "blue",
+  rules: "slate",
+  human: "amber",
+  ui: "slate",
+};
+
+function runtimeColor(runtime: WorkflowStep["runtime"]) {
+  switch (runtime) {
+    case "typesafe":
+    case "azure":
+    case "rules":
+    case "human":
+    case "ui":
+      return RUNTIME_COLOR[runtime];
+    default: {
+      const _exhaustive: never = runtime;
+      return _exhaustive;
+    }
+  }
+}
+
+export function WorkflowDetailSheet({
+  step,
+  index,
+  config,
+  ready,
+  onClose,
+}: {
+  step: WorkflowStep;
+  index: number;
+  config: AgentConfig | null;
+  ready: boolean | null;
+  onClose: () => void;
+}) {
+  const agentForStep =
+    config && step.agentKey ? config[step.agentKey] : null;
+
+  return (
+    <aside className="rp-flow-sheet" aria-label={`${step.title} details`}>
+      <div className="flex items-start justify-between gap-3">
+        <SectionTitle eyebrow={`Step ${index + 1}`}>{step.title}</SectionTitle>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-lg border border-[var(--line)] px-2.5 py-1 text-xs font-semibold text-[var(--ink-mute)] hover:bg-[var(--paper-2)]"
+        >
+          Close
+        </button>
+      </div>
+
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Badge color={runtimeColor(step.runtime)}>{step.runtime}</Badge>
+        {ready != null && (
+          <Badge color={ready ? "green" : "amber"}>
+            {ready ? "service ready" : "not configured"}
+          </Badge>
+        )}
+      </div>
+
+      <p className="text-sm leading-relaxed text-[var(--ink-2)]">{step.role}</p>
+
+      <div className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--paper-2)] p-3">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-mute)]">
+          Real implementation
+        </div>
+        <code className="mt-1 block whitespace-pre-wrap font-mono text-xs leading-relaxed text-[var(--ink)]">
+          {step.implementation}
+        </code>
+      </div>
+
+      <div className="mt-3">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-mute)]">
+          APIs
+        </div>
+        <ul className="mt-1.5 flex flex-wrap gap-1.5">
+          {step.apis.map((a) => (
+            <li key={a}>
+              <Badge color="slate">{a}</Badge>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="mt-5 border-t border-[var(--line)] pt-4">
+        <SectionTitle eyebrow="Policy">
+          {agentForStep ? agentForStep.label : "Operator step"}
+        </SectionTitle>
+        {agentForStep ? (
+          <>
+            <p className="text-sm text-[var(--ink-2)]">
+              {agentForStep.description}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Badge color={agentForStep.enabled ? "green" : "amber"}>
+                {agentForStep.enabled ? "enabled" : "disabled"}
+              </Badge>
+              {step.agentKey === "guardrail" && config && (
+                <Badge color="slate">
+                  inject ≥ {config.guardrail.injectionBlockThreshold.toFixed(2)}
+                </Badge>
+              )}
+              {step.agentKey === "triage" && config && (
+                <Badge color="slate">
+                  escalate ≥{" "}
+                  {config.triage.escalateFullPathThreshold.toFixed(2)}
+                </Badge>
+              )}
+              {step.agentKey === "grounding" && config && (
+                <Badge color="slate">
+                  support &lt; {config.grounding.supportThreshold.toFixed(2)}
+                </Badge>
+              )}
+              {step.agentKey === "gate" && config && (
+                <Badge color="slate">
+                  auto &gt; {config.gate.autoApproveAbove.toFixed(2)}
+                </Badge>
+              )}
+            </div>
+            <Link
+              href="/agents"
+              className="mt-4 inline-block text-xs font-semibold text-[var(--sky)] hover:underline"
+            >
+              Edit this agent →
+            </Link>
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-[var(--ink-2)]">
+              {step.id === "intake" &&
+                "Load a CCAR, COREP, FINREP, Call Report, or Dodd-Frank sample and run the full pipeline."}
+              {step.id === "human" &&
+                "Review queue supports filters, bulk approve, and re-analyze against the same agents."}
+              {step.id === "export" &&
+                "Examiner packages include memo, obligations, grounding, redacted source, and audit trail."}
+              {step.id === "eval" &&
+                "Replay labeled samples to calibrate thresholds without writing production decisions."}
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {step.id === "intake" && (
+                <Link
+                  href="/intake"
+                  className="rounded-lg bg-[var(--sage)] px-3 py-2 text-xs font-semibold text-white"
+                >
+                  Go to intake
+                </Link>
+              )}
+              {step.id === "human" && (
+                <Link
+                  href="/review"
+                  className="rounded-lg bg-[var(--sage)] px-3 py-2 text-xs font-semibold text-white"
+                >
+                  Go to review
+                </Link>
+              )}
+              {step.id === "export" && (
+                <Link
+                  href="/"
+                  className="rounded-lg bg-[var(--ink)] px-3 py-2 text-xs font-semibold text-white"
+                >
+                  Open overview
+                </Link>
+              )}
+              {step.id === "eval" && (
+                <Link
+                  href="/settings"
+                  className="rounded-lg bg-[var(--ink)] px-3 py-2 text-xs font-semibold text-white"
+                >
+                  Open settings
+                </Link>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </aside>
+  );
+}
