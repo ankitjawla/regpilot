@@ -157,8 +157,8 @@ export default function WorkflowPage() {
               Live flow
             </h2>
             <p className="mt-1 max-w-xl text-xs text-[var(--ink-mute)]">
-              Branched DAG: block / pass, fast vs full draft, parallel Jev
-              verify, then gate. Pan and zoom; click a node for details.
+              Click any node for what goes in, what goes out, why it exists, and
+              exactly how the next block is chosen (with live thresholds).
             </p>
             <ul className="rp-flow-legend" aria-label="Edge legend">
               <li>

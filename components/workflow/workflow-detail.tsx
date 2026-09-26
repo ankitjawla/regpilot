@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Badge, SectionTitle } from "@/components/ui";
 import type { AgentConfig, WorkflowStep } from "@/lib/agents";
 import { AGENT_PLAIN, type AgentKeyForPrimer } from "@/lib/jev-primer";
+import { contractFor } from "@/lib/workflow-contracts";
 
 const RUNTIME_COLOR: Record<
   WorkflowStep["runtime"],
@@ -46,6 +47,7 @@ export function WorkflowDetailSheet({
 }) {
   const agentForStep =
     config && step.agentKey ? config[step.agentKey] : null;
+  const contract = contractFor(step.id, config);
 
   return (
     <aside className="rp-flow-sheet" aria-label={`${step.title} details`}>
@@ -70,6 +72,65 @@ export function WorkflowDetailSheet({
       </div>
 
       <p className="text-sm leading-relaxed text-[var(--ink-2)]">{step.role}</p>
+
+      <div className="mt-3 rounded-xl border border-[var(--sage)]/25 bg-[var(--sage-soft)]/40 p-3">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-mute)]">
+          Why this block
+        </div>
+        <p className="mt-1 text-sm leading-relaxed text-[var(--ink)]">
+          {contract.why}
+        </p>
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-1">
+        <div className="rounded-xl border border-[var(--line)] bg-white p-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--sky)]">
+            What goes in
+          </div>
+          <ul className="mt-1.5 list-disc space-y-1 pl-4 text-xs leading-relaxed text-[var(--ink-2)]">
+            {contract.inputs.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+        <div className="rounded-xl border border-[var(--line)] bg-white p-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--sage)]">
+            What goes out
+          </div>
+          <ul className="mt-1.5 list-disc space-y-1 pl-4 text-xs leading-relaxed text-[var(--ink-2)]">
+            {contract.outputs.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--paper-2)] p-3">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-mute)]">
+          How the next block is picked
+        </div>
+        <p className="mt-1 text-sm leading-relaxed text-[var(--ink)]">
+          {contract.nextHow}
+        </p>
+        <ul className="mt-3 space-y-2">
+          {contract.branches.map((b) => (
+            <li
+              key={`${b.when}-${b.goesTo}`}
+              className="rounded-lg border border-[var(--line)] bg-white px-2.5 py-2"
+            >
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Badge color="slate">{b.when}</Badge>
+                <span className="text-xs font-semibold text-[var(--ink)]">
+                  → {b.goesTo}
+                </span>
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-[var(--ink-mute)]">
+                {b.condition}
+              </p>
+            </li>
+          ))}
+        </ul>
+      </div>
 
       {step.runtime === "typesafe" && (
         <div className="mt-3 rounded-xl border border-[var(--sage)]/30 bg-[var(--sage-soft)]/50 p-3 text-xs leading-relaxed text-[var(--ink-2)]">
@@ -107,18 +168,20 @@ export function WorkflowDetailSheet({
         </code>
       </div>
 
-      <div className="mt-3">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-mute)]">
-          APIs
+      {step.apis.length > 0 && (
+        <div className="mt-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-mute)]">
+            APIs
+          </div>
+          <ul className="mt-1.5 flex flex-wrap gap-1.5">
+            {step.apis.map((a) => (
+              <li key={a}>
+                <Badge color="slate">{a}</Badge>
+              </li>
+            ))}
+          </ul>
         </div>
-        <ul className="mt-1.5 flex flex-wrap gap-1.5">
-          {step.apis.map((a) => (
-            <li key={a}>
-              <Badge color="slate">{a}</Badge>
-            </li>
-          ))}
-        </ul>
-      </div>
+      )}
 
       <div className="mt-5 border-t border-[var(--line)] pt-4">
         <SectionTitle eyebrow="Policy">
