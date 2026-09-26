@@ -73,10 +73,7 @@ export default function WorkflowPage() {
 
   // Demo pulse only when this tab has no live pipeline session.
   useEffect(() => {
-    if (!steps.length || run) {
-      setLiveId(null);
-      return;
-    }
+    if (!steps.length || run) return;
     const path = PULSE_ORDER.filter(
       (id) =>
         steps.some((s) => s.id === id) ||
