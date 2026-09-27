@@ -1,0 +1,230 @@
+[div] RegPilot
+[div] Examination console
+[div] Decision stack
+[span] TypeSafe jev-latest
+[div] Azure gpt-5.4 · Neon audit
+[span] Overview
+[span] Pipeline pulse
+[span] Triage & draft
+[span] Human gate
+[span] Workflow
+[span] How it runs
+[span] Edit policy
+[span] Settings
+[span] Presets & prompts
+[span] Decision trail
+[div] Operator note
+[p] System One decides. Azure drafts. Humans clear. Every step is written to the audit ledger.
+[a] Start intake
+[div] RegPilot
+[h1] Overview
+[p] TypeSafe System One triages and scores. Azure OpenAI drafts. Humans clear what the confidence gate holds back.
+[span] Updated Sep 27, 05:07 AM
+[button] Refresh
+[a] Review queue
+[a] Workflow
+[a] New intake
+[div] Guardrail
+[div] PII + injection
+[div] Triage
+[div] TypeSafe choices
+[div] Draft
+[div] Azure memo
+[div] Gate
+[div] Human or auto
+[div] Needs you
+[div] pending review or rework
+[div] Blocked
+[div] injection / guardrail
+[div] Fast path
+[div] 29%
+[div] routine high-confidence
+[div] Avg confidence
+[div] 0.79
+[div] 38 cleared · 123 total
+[div] Grounding holds
+[div] soft-fail checks (audit)
+[div] System One
+[h2] AI decision layer
+[span] Live · jev-latest
+[span] critical
+[p] Jev returns typed judgments — category, urgency, jurisdiction, injection and escalate nouls — so the router can act without parsing free text. Azure only writes obligations and memos.
+[div] category
+[div] 100
+[div] local holdout
+[div] urgency
+[div] 100
+[div] local holdout
+[div] jurisdiction
+[div] local holdout
+[div] injection
+[div] local holdout
+[div] Routing policy
+[li] Critical urgency → full Azure analysis
+[li] Escalate noul ≥ 0.75 on non-routine → full path
+[li] High-conf routine Consumer/Ops → fast path
+[li] Confidence > 0.90 → auto-approve
+[li] Weak grounding → soft-cap confidence ≤ 0.49
+[div] Mix
+[h2] By category
+[span] AML-BSA
+[span] Consumer Compliance
+[span] Unclassified
+[span] Capital
+[span] Liquidity
+[span] Other
+[span] Operational Risk
+[div] Ledger
+[h2] Live audit
+[span] review.approve
+[span] Sep 27, 05:00 AM
+[a] Desk trail check
+[div] Saw the citation and playbook gaps — Saw 9: Citation needs confirm; Citation needs confirm; Playbook gap; Playbook gap; Playbook gap; Playbook gap; Hazard review; Due date needs review +1
+[span] policy.stamp
+[span] Sep 27, 04:59 AM
+[a] Desk trail check
+[div] {"policy_version":6,"preset":"custom","hasGrounding":true,"hasConfidence":true,"hasHazard":true,"hasPlaybook":true}
+[span] gate.pending_review
+[span] Sep 27, 04:59 AM
+[a] Desk trail check
+[div] Needs human confirm — uncertain / citation / due-date / hazard
+[span] confidence.score
+[span] Sep 27, 04:59 AM
+[a] Desk trail check
+[div] score=0.76: Overall quality score 2.34/4 (conf 0.67); Grounded noul 0.75; Complete noul 0.89
+[span] cascade.rung
+[span] Sep 27, 04:59 AM
+[a] Desk trail check
+[div] {"rung":"big","verified":true,"anyFire":true,"model":"gpt-5.4"}
+[span] obligations.dedupe
+[span] Sep 27, 04:59 AM
+[a] Desk trail check
+[div] {"pairs":3,"merges":0}
+[span] due_date.extract
+[span] Sep 27, 04:59 AM
+[a] Desk trail check
+[div] {"count":3,"anyNeedsReview":true}
+[a] Open full audit →
+[div] Action
+[h2] Items that need you
+[a] Open queue →
+[th] Matter
+[th] Urgency
+[th] Conf.
+[th] Obligations
+[th] Status
+[a] OCC BSA/AML Exam Finding
+[div] AML-BSA
+[div] · #
+[div] 115
+[span] critical
+[span] 0.70
+[span] Pending review
+[a] Federal Reserve Capital Planning Update
+[div] Capital
+[div] · #
+[span] high
+[span] 0.68
+[span] Pending review
+[a] COREP Own Funds / Capital Adequacy Finding
+[div] Capital
+[div] · #
+[span] high
+[span] 0.71
+[span] Pending review
+[a] FINREP ECL Governance and Stage Migration Review
+[div] Other
+[div] · #
+[span] high
+[span] 0.63
+[span] Pending review
+[a] OCC BSA/AML exam letter dated 2026-03-15. Bank must file SAR within 30 days for
+[div] AML-BSA
+[div] · #
+[div] 100
+[span] high
+[span] 0.70
+[span] Pending review
+[a] OCC BSA/AML exam letter dated 2026-03-15. Bank must file SAR within 30 days for
+[div] AML-BSA
+[div] · #
+[div] 101
+[span] high
+[span] 0.66
+[span] Pending review
+[a] FINREP ECL Governance and Stage Migration Review
+[div] Other
+[div] · #
+[div] 103
+[span] high
+[span] 0.64
+[span] Pending review
+[a] Call Report Multi-Schedule Accuracy and Liquidity MRA
+[div] Other
+[div] · #
+[div] 104
+[span] high
+[span] 0.67
+[span] Pending review
+[div] Recent
+[h2] Pipeline feed
+[div] Desk trail check
+[span] AML-BSA
+[span] full
+[span] high
+[span] Approved
+[div] Sep 27, 04:59 AM
+[div] PII Redaction Demo
+[span] Consumer Compliance
+[span] fast
+[span] medium
+[span] Pending review
+[div] Sep 27, 04:57 AM
+[div] FINREP ECL Governance and Stage Migration Review
+[span] Other
+[span] fast
+[span] high
+[span] Triaged
+[div] Sep 27, 04:56 AM
+[div] FINREP ECL Governance and Stage Migration Review
+[span] Other
+[span] fast
+[span] high
+[span] Triaged
+[div] Sep 27, 04:56 AM
+[div] E2E BSA letter
+[span] AML-BSA
+[span] full
+[span] high
+[span] Pending review
+[div] Sep 26, 10:27 PM
+[div] E2E BSA letter
+[span] AML-BSA
+[span] full
+[span] high
+[span] Pending review
+[div] Sep 26, 10:26 PM
+[div] SSE probe
+[span] AML-BSA
+[span] full
+[span] high
+[span] Pending review
+[div] Sep 26, 10:22 PM
+[div] E2E BSA letter
+[span] AML-BSA
+[span] full
+[span] high
+[span] Pending review
+[div] Sep 26, 10:21 PM
+[div] OCC BSA/AML Exam Finding
+[span] AML-BSA
+[span] full
+[span] critical
+[span] Pending review
+[div] Sep 26, 10:17 PM
+[div] Smoke PII
+[span] Consumer Compliance
+[span] fast
+[span] low
+[span] Triaged
+[div] Sep 26, 09:37 PM
