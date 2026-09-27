@@ -30,6 +30,7 @@ import {
   taxonomyFromTriage,
 } from "@/lib/enhance";
 import type { StageEvent } from "@/lib/pipeline-events";
+import { trailFromPayload, writeRunTrail } from "@/lib/run-trail";
 
 export const maxDuration = 120;
 
@@ -209,18 +210,22 @@ async function executePipeline(
       for (const id of SKIP_AFTER_BLOCK) {
         emit({ type: "stage", id, state: "skipped" });
       }
+      const blockedBody = {
+        blocked: true,
+        itemId,
+        guardrail,
+        jev: { model: jev.model, latencyMs: jev.latencyMs },
+        provenance: {
+          policy_version: agentCfg.version,
+          preset: agentCfg.preset,
+        },
+      };
+      await writeRunTrail(itemId, trailFromPayload(blockedBody)).catch((err) => {
+        console.error("[pipeline] trail", (err as Error).message);
+      });
       return {
         status: 200,
-        body: {
-          blocked: true,
-          itemId,
-          guardrail,
-          jev: { model: jev.model, latencyMs: jev.latencyMs },
-          provenance: {
-            policy_version: agentCfg.version,
-            preset: agentCfg.preset,
-          },
-        },
+        body: blockedBody,
       };
     }
 
@@ -578,9 +583,7 @@ async function executePipeline(
       })
     );
 
-    return {
-      status: 200,
-      body: {
+    const successBody = {
       blocked: gate.status === "blocked",
       itemId,
       guardrail: {
@@ -614,7 +617,13 @@ async function executePipeline(
         preset: agentCfg.preset,
         judgments,
       },
-      },
+    };
+    await writeRunTrail(itemId, trailFromPayload(successBody)).catch((err) => {
+      console.error("[pipeline] trail", (err as Error).message);
+    });
+    return {
+      status: 200,
+      body: successBody,
     };
   } catch (e) {
     const msg = (e as Error).message || "unknown";

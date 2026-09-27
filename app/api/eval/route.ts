@@ -4,7 +4,8 @@ import { rateLimited, clientIp } from "@/lib/ratelimit";
 import { getAgentConfig } from "@/lib/agent-store";
 import { DEFAULT_AGENT_CONFIG } from "@/lib/agents";
 import { SAMPLES } from "@/lib/samples";
-import { typesafeConfigured, typesafeTriage } from "@/lib/typesafe";
+import { typesafeConfigured, typesafeMemoHazard, typesafeTriage } from "@/lib/typesafe";
+import { gateGoldSuggestions, scoreGateGold, type GateGoldScore } from "@/lib/eval-gold";
 import { redactPII } from "@/lib/redact";
 import { noulBand, choiceBand } from "@/lib/bands";
 import { bandCfgFromAgent } from "@/lib/enhance";
@@ -50,11 +51,14 @@ export async function POST(req: NextRequest) {
     };
     const agentCfg = await getAgentConfig().catch(() => DEFAULT_AGENT_CONFIG);
     const bands = bandCfgFromAgent(agentCfg);
-    const limit = Math.min(12, Math.max(1, body.limit ?? 6));
+    const limit = Math.min(12, Math.max(1, body.limit ?? 4));
+    const labeled = SAMPLES.filter((s) => s.gold);
     const pool =
       Array.isArray(body.sampleIds) && body.sampleIds.length
         ? SAMPLES.filter((s) => body.sampleIds!.includes(s.id))
-        : SAMPLES;
+        : labeled.length
+          ? labeled
+          : SAMPLES;
     const samples = pool.slice(0, limit);
 
     type Row = {
@@ -72,13 +76,14 @@ export async function POST(req: NextRequest) {
     };
 
     const rows: Row[] = [];
+    const gateRows: GateGoldScore[] = [];
     let certainCorrect = 0;
     let certainTotal = 0;
     let uncertainTotal = 0;
     const injectionUncertain = { low: 0, mid: 0, high: 0 };
 
     for (const sample of samples) {
-      const { redacted } = redactPII(sample.text);
+      const { redacted, piiFound } = redactPII(sample.text);
       const t = await typesafeTriage(redacted);
       const catBand = choiceBand(t.category.confidence, bands);
       const injBand = noulBand(t.injection.noul, bands);
@@ -108,6 +113,34 @@ export async function POST(req: NextRequest) {
       else if (t.injection.noul < bands.noulUncertainLow)
         injectionUncertain.low += 1;
       else injectionUncertain.high += 1;
+
+      if (sample.gold) {
+        let hazardDisposition: "pass" | "review" | "block" | null = null;
+        try {
+          const hazard = await typesafeMemoHazard({ memo: redacted });
+          hazardDisposition = hazard.disposition;
+        } catch (err) {
+          console.error(
+            "[eval] hazard",
+            sample.id,
+            (err as Error).message?.slice(0, 120)
+          );
+        }
+        gateRows.push(
+          scoreGateGold({
+            id: sample.id,
+            gold: sample.gold,
+            category: t.category.choice,
+            categoryBand: catBand,
+            injectionNoul: t.injection.noul,
+            injectionBlockThreshold: agentCfg.guardrail.injectionBlockThreshold,
+            escalateNoul: t.escalate.noul,
+            escalateFullPathThreshold: agentCfg.triage.escalateFullPathThreshold,
+            piiFound,
+            hazardDisposition,
+          })
+        );
+      }
     }
 
     const precisionAtCertain =
@@ -141,6 +174,22 @@ export async function POST(req: NextRequest) {
         "Many injection nouls in the mid band — tune guardrail.injectionBlockThreshold against live traffic."
       );
     }
+    suggestions.push(
+      ...gateGoldSuggestions(gateRows, {
+        injectionBlockThreshold: agentCfg.guardrail.injectionBlockThreshold,
+        escalateFullPathThreshold: agentCfg.triage.escalateFullPathThreshold,
+      })
+    );
+
+    const gate = gateRows.length
+      ? {
+          labeled: gateRows.length,
+          categoryHits: gateRows.filter((r) => r.categoryHit).length,
+          blockHits: gateRows.filter((r) => r.blockHit).length,
+          confirmHits: gateRows.filter((r) => r.confirmHit).length,
+          rows: gateRows,
+        }
+      : null;
 
     const summary = {
       sampleCount: rows.length,
@@ -152,6 +201,7 @@ export async function POST(req: NextRequest) {
       injectionUncertain,
       bands,
       rows,
+      gate,
     };
 
     const inserted = await query<{ id: number }>(

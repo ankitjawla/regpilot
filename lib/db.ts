@@ -92,6 +92,7 @@ ALTER TABLE regpilot_items ADD COLUMN IF NOT EXISTS judgments JSONB;
 ALTER TABLE regpilot_obligations ADD COLUMN IF NOT EXISTS due_date_iso TEXT;
 ALTER TABLE regpilot_obligations ADD COLUMN IF NOT EXISTS date_confidence DOUBLE PRECISION;
 ALTER TABLE regpilot_obligations ADD COLUMN IF NOT EXISTS needs_review BOOLEAN DEFAULT FALSE;
+ALTER TABLE regpilot_items ADD COLUMN IF NOT EXISTS run_trail JSONB;
 `;
 
 function ensureSchema(): Promise<void> {

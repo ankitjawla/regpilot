@@ -253,9 +253,9 @@ export default function SettingsPage() {
           <Card>
             <SectionTitle eyebrow="Calibration">Eval harness</SectionTitle>
             <p className="mb-3 text-xs text-[var(--ink-mute)]">
-              Replay built-in samples through TypeSafe triage. Reports
-              precision@band and suggests threshold tweaks. Does not write
-              production items.
+              Replay labeled samples through TypeSafe triage and the hazard
+              screen. Scores category, block, and human-confirm against gold
+              labels. Does not write production items.
             </p>
             <EvalPanel />
           </Card>
@@ -275,6 +275,12 @@ function EvalPanel() {
       sampleCount: number;
       precisionAtCertain: number | null;
       uncertainRate: number;
+      gate?: {
+        labeled: number;
+        categoryHits: number;
+        blockHits: number;
+        confirmHits: number;
+      } | null;
     };
   } | null>(null);
   const [runs, setRuns] = useState<
@@ -315,7 +321,7 @@ function EvalPanel() {
         disabled={busy}
         className="rounded-xl bg-[var(--ink)] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
       >
-        {busy ? "Running eval…" : "Run calibration (4 samples)"}
+        {busy ? "Running eval…" : "Run calibration (labeled samples)"}
       </button>
       {error && (
         <p className="mt-2 text-sm text-[var(--coral)]">{error}</p>
@@ -328,6 +334,9 @@ function EvalPanel() {
             {result.summary.precisionAtCertain != null
               ? `${(result.summary.precisionAtCertain * 100).toFixed(0)}%`
               : "n/a"}
+            {result.summary.gate
+              ? ` · gate category ${result.summary.gate.categoryHits}/${result.summary.gate.labeled}, block ${result.summary.gate.blockHits}/${result.summary.gate.labeled}, confirm ${result.summary.gate.confirmHits}/${result.summary.gate.labeled}`
+              : ""}
           </div>
           {(result.suggestions || []).map((s, i) => (
             <p key={i} className="text-xs text-[var(--ink-mute)]">

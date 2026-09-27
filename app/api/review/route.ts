@@ -1,5 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query, audit } from "@/lib/db";
+import { exceptionAuditLine, gateExceptions } from "@/lib/exceptions";
+import { parseJudgments } from "@/lib/provenance";
+import { markTrailStages } from "@/lib/run-trail";
+
+async function seenLine(itemId: number): Promise<string> {
+  const rows = await query<{ judgments: unknown }>(
+    `SELECT judgments FROM regpilot_items WHERE id=$1`,
+    [itemId]
+  );
+  const obligations = await query<{
+    owner: string | null;
+    action: string | null;
+    due_date: string | null;
+    source_quote: string | null;
+    needs_review: boolean | null;
+  }>(
+    `SELECT owner, action, due_date, source_quote, needs_review
+     FROM regpilot_obligations WHERE item_id=$1 ORDER BY id`,
+    [itemId]
+  );
+  const list = gateExceptions({
+    judgments: parseJudgments(rows[0]?.judgments),
+    obligations,
+  });
+  return exceptionAuditLine(list);
+}
 
 // GET: review queue (pending_review + needs_work), newest first
 // Optional ?uncertain=1 filters items with uncertain triage / citation / due-date flags
@@ -139,14 +165,33 @@ export async function POST(req: NextRequest) {
     const status = decision === "approve" ? "approved" : "needs_work";
     const action =
       decision === "approve" ? "review.approve" : "review.request_changes";
-    const detail = note ? note.slice(0, 500) : undefined;
+    const humanDetail = decision === "approve" ? "approved" : "changes requested";
 
     for (const itemId of ids) {
+      const seen = await seenLine(itemId);
+      const detail = [note ? note.slice(0, 300) : "", seen]
+        .filter(Boolean)
+        .join(" — ")
+        .slice(0, 500);
       await query(`UPDATE regpilot_items SET status=$2 WHERE id=$1`, [
         itemId,
         status,
       ]);
       await audit(itemId, "human", action, detail);
+      const patches =
+        decision === "approve"
+          ? [
+              { id: "human" as const, state: "done" as const, detail: humanDetail },
+              {
+                id: "export" as const,
+                state: "pending" as const,
+                detail: "ready to export",
+              },
+            ]
+          : [
+              { id: "human" as const, state: "done" as const, detail: humanDetail },
+            ];
+      await markTrailStages(itemId, patches);
     }
 
     return NextResponse.json({
