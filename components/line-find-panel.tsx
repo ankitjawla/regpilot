@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import {
   Card,
   SectionTitle,
@@ -54,12 +61,14 @@ type Props = {
   className?: string;
 };
 
-export function LineFindPanel({
-  itemId,
-  onSelectLine,
-  compact = false,
-  className = "",
-}: Props) {
+export type LineFindHandle = {
+  find: (query: string) => void;
+};
+
+export const LineFindPanel = forwardRef<LineFindHandle, Props>(function LineFindPanel(
+  { itemId, onSelectLine, compact = false, className = "" },
+  ref
+) {
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -74,13 +83,14 @@ export function LineFindPanel({
     }
   }, []);
 
-  async function runFind(e?: FormEvent) {
+  async function runFind(e?: FormEvent, queryOverride?: string) {
     e?.preventDefault();
-    const q = query.trim();
+    const q = (queryOverride ?? query).trim();
     if (!q) {
       setError("Ask a question about the source.");
       return;
     }
+    if (queryOverride) setQuery(queryOverride);
     setBusy(true);
     setError("");
     setResult(null);
@@ -106,6 +116,18 @@ export function LineFindPanel({
       setBusy(false);
     }
   }
+
+  useImperativeHandle(ref, () => ({
+    find: (next: string) => {
+      const q = next.trim().slice(0, 500);
+      if (!q) return;
+      document.getElementById("line-find")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+      void runFind(undefined, q);
+    },
+  }));
 
   function pickHit(hit: LineFindHit) {
     setActiveId(hit.id);
@@ -203,4 +225,4 @@ export function LineFindPanel({
     </Card>
     </div>
   );
-}
+});

@@ -63,6 +63,8 @@ export type PipelineResultPayload = {
     unsupportedCount?: number;
   } | null;
   provenance?: {
+    policy_version?: string | number;
+    preset?: string;
     judgments?: {
       hazard?: { disposition?: string };
       playbook?: { playbookId?: string; meanCoverage?: number };

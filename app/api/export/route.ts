@@ -8,6 +8,7 @@ import {
 import { getAgentConfig } from "@/lib/agent-store";
 import { DEFAULT_AGENT_CONFIG } from "@/lib/agents";
 import { parseJudgments } from "@/lib/provenance";
+import { markTrailStages } from "@/lib/run-trail";
 
 export async function GET(req: NextRequest) {
   try {
@@ -31,6 +32,7 @@ export async function GET(req: NextRequest) {
       policy_version: number | null;
       preset: string | null;
       judgments: unknown;
+      run_trail?: unknown;
     }>(`SELECT * FROM regpilot_items WHERE id=$1`, [itemId]);
     const row = items[0];
     if (!row) return NextResponse.json({ error: "Item not found" }, { status: 404 });
@@ -40,8 +42,10 @@ export async function GET(req: NextRequest) {
       judgments: _rawJudgments,
       policy_version,
       preset,
+      run_trail: _trail,
       ...itemRest
     } = row;
+    void _trail;
     void _rawJudgments;
 
     const obligations = await query<{
@@ -125,6 +129,15 @@ export async function GET(req: NextRequest) {
     };
 
     const agentCfg = await getAgentConfig().catch(() => DEFAULT_AGENT_CONFIG);
+    await markTrailStages(itemId, [
+      {
+        id: "export",
+        state: "done",
+        detail: format === "md" || format === "markdown" ? "exported markdown" : "exported json",
+      },
+    ]).catch((err) => {
+      console.error("[export] trail", (err as Error).message);
+    });
 
     if (format === "md" || format === "markdown") {
       const md = buildExportMarkdown(pkg, {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { playbookForText } from "@/lib/playbooks";
 import { parseJudgments } from "@/lib/provenance";
+import { parseRunTrail } from "@/lib/run-trail";
 
 /** Full item package for the detail page (item + obligations + draft + audit). */
 export async function GET(req: NextRequest) {
@@ -26,6 +27,7 @@ export async function GET(req: NextRequest) {
       policy_version: number | null;
       preset: string | null;
       judgments: unknown;
+      run_trail: unknown;
     }>(`SELECT * FROM regpilot_items WHERE id=$1`, [itemId]);
     const item = items[0];
     if (!item) return NextResponse.json({ error: "Item not found" }, { status: 404 });
@@ -91,6 +93,7 @@ export async function GET(req: NextRequest) {
       judgments: _rawJudgments,
       policy_version,
       preset,
+      run_trail: rawTrail,
       ...itemRest
     } = item;
     void _rawJudgments;
@@ -116,6 +119,7 @@ export async function GET(req: NextRequest) {
       },
       playbook,
       audit: audits,
+      runTrail: parseRunTrail(rawTrail),
     });
   } catch (e) {
     console.error("[detail]", (e as Error).message);

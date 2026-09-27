@@ -8,6 +8,16 @@ export type Sample = {
   /** Regulatory framework tag for intake filters. */
   framework: string;
   text: string;
+  /**
+   * Expected exam decisions for the calibration harness.
+   * shouldBlock: stop before drafting (PII, injection, or hazard).
+   * shouldConfirm: a person must see it; false means a routine pass is correct.
+   */
+  gold?: {
+    category: string;
+    shouldBlock: boolean;
+    shouldConfirm: boolean;
+  };
 };
 
 export const SAMPLE_FRAMEWORKS = [
@@ -28,6 +38,7 @@ export const SAMPLES: Sample[] = [
     title: "OCC BSA/AML Exam Finding",
     label: "FICTIONAL SAMPLE",
     framework: "BSA/AML",
+    gold: { category: "AML-BSA", shouldBlock: false, shouldConfirm: true },
     text: `FICTIONAL EXAMINATION MEMORANDUM — FOR DEMO ONLY
 
 To: Board of Directors, Meridian Trust Bank (fictional institution)
@@ -71,6 +82,7 @@ Recommended internal actions:
     title: "CCAR Severely Adverse Capital Plan",
     label: "FICTIONAL SAMPLE",
     framework: "CCAR",
+    gold: { category: "Capital", shouldBlock: false, shouldConfirm: true },
     text: `FICTIONAL CCAR SUPERVISORY NOTICE — FOR DEMO ONLY
 
 To: Chief Financial Officer and Chief Risk Officer, Meridian Trust Bank (LHCB, fictional)
@@ -204,6 +216,7 @@ Call Report amendments that change capital ratios should be coordinated with the
     title: "Federal Reserve Capital Planning Update",
     label: "FICTIONAL SAMPLE",
     framework: "CCAR",
+    gold: { category: "Capital", shouldBlock: false, shouldConfirm: false },
     text: `FICTIONAL POLICY SUMMARY — FOR DEMO ONLY
 
 Federal Reserve SR Letter 26-3 (fictional): Updates to Capital Planning Expectations
@@ -246,6 +259,11 @@ No regulatory deadline is attached, but proactive remediation materially reduces
     title: "PII Redaction Demo",
     label: "FICTIONAL SAMPLE — CONTAINS FAKE PII",
     framework: "Demo",
+    gold: {
+      category: "Consumer Compliance",
+      shouldBlock: true,
+      shouldConfirm: false,
+    },
     text: `FICTIONAL CUSTOMER FILE — FOR DEMO ONLY. All personal data below is fabricated.
 
 Borrower: John Q. Sample

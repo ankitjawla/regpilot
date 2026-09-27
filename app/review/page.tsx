@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import {
@@ -12,7 +12,10 @@ import {
   UrgencyBadge,
   PageHeader,
 } from "@/components/ui";
-import { LineFindPanel } from "@/components/line-find-panel";
+import { LineFindPanel, type LineFindHandle } from "@/components/line-find-panel";
+import { ExceptionDesk } from "@/components/exception-desk";
+import { gateExceptions } from "@/lib/exceptions";
+import type { ItemJudgments } from "@/lib/provenance";
 
 type QueueItem = {
   id: number;
@@ -31,7 +34,13 @@ type QueueItem = {
 };
 
 type Detail = {
-  obligations: { owner: string; action: string; due_date: string; source_quote: string }[];
+  obligations: {
+    owner: string;
+    action: string;
+    due_date: string;
+    source_quote: string;
+    needs_review?: boolean | null;
+  }[];
   memo: string;
   modelUsed: string;
   confidence: { score: number; reasons: string[] };
@@ -40,6 +49,7 @@ type Detail = {
     unsupportedCount?: number;
     details?: string;
   } | null;
+  provenance?: { judgments?: ItemJudgments | null };
 };
 
 export default function ReviewQueue() {
@@ -55,6 +65,15 @@ export default function ReviewQueue() {
   const [uncertainOnly, setUncertainOnly] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const findRef = useRef<LineFindHandle>(null);
+  const exceptions = useMemo(
+    () =>
+      gateExceptions({
+        judgments: detail?.provenance?.judgments,
+        obligations: detail?.obligations,
+      }),
+    [detail]
+  );
 
   async function load() {
     const q = uncertainOnly ? "?uncertain=1" : "";
@@ -335,6 +354,16 @@ export default function ReviewQueue() {
             </Card>
           ) : (
             <div className="space-y-4">
+              {detail ? (
+                <ExceptionDesk
+                  exceptions={exceptions}
+                  onFind={(quote) => findRef.current?.find(quote)}
+                />
+              ) : (
+                <Card>
+                  <SectionTitle eyebrow="Why it stopped">Loading exceptions…</SectionTitle>
+                </Card>
+              )}
               <Card>
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <SectionTitle eyebrow="Extracted">
@@ -401,6 +430,7 @@ export default function ReviewQueue() {
               )}
               {selected && (
                 <LineFindPanel
+                  ref={findRef}
                   itemId={selected.id}
                   compact
                   onSelectLine={() => {
@@ -439,6 +469,11 @@ export default function ReviewQueue() {
               </Card>
               <Card>
                 <SectionTitle eyebrow="Human">Your decision</SectionTitle>
+                <p className="mb-3 text-xs leading-relaxed text-[var(--ink-mute)]">
+                  {exceptions.length
+                    ? `Approving records that you saw ${exceptions.length} exception${exceptions.length === 1 ? "" : "s"} on this item.`
+                    : "Approving records that the desk had no gate exceptions."}
+                </p>
                 <textarea
                   value={note}
                   onChange={(e) => setNote(e.target.value)}

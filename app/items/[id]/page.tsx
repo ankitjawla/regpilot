@@ -16,6 +16,8 @@ import {
   LineFindPanel,
   type LineFindHit,
 } from "@/components/line-find-panel";
+import { RunTrailStrip } from "@/components/run-trail-strip";
+import type { RunTrail } from "@/lib/run-trail";
 
 type Detail = {
   item: {
@@ -135,6 +137,7 @@ type Detail = {
     title: string;
     steps: string[];
   } | null;
+  runTrail?: RunTrail | null;
   audit: {
     id: number;
     actor: string;
@@ -211,6 +214,16 @@ export default function ItemDetail({
     }
   }
 
+  const sourceText = data?.item.source_text_redacted ?? "";
+  const sourceLines = useMemo(() => {
+    const raw = sourceText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    const parts = raw.length === 0 ? [""] : raw.split("\n");
+    return parts.map((text, index) => ({
+      id: `L${String(index).padStart(3, "0")}`,
+      text,
+    }));
+  }, [sourceText]);
+
   async function decide(decision: "approve" | "needs_work") {
     setBusy(true);
     setError("");
@@ -254,17 +267,6 @@ export default function ItemDetail({
     item.status
   );
 
-  const sourceLines = useMemo(() => {
-    const raw = (item.source_text_redacted || "")
-      .replace(/\r\n/g, "\n")
-      .replace(/\r/g, "\n");
-    const parts = raw.length === 0 ? [""] : raw.split("\n");
-    return parts.map((text, index) => ({
-      id: `L${String(index).padStart(3, "0")}`,
-      text,
-    }));
-  }, [item.source_text_redacted]);
-
   function onSelectFindLine(hit: LineFindHit) {
     setHighlightLineId(hit.id);
     requestAnimationFrame(() => {
@@ -275,6 +277,7 @@ export default function ItemDetail({
 
   return (
     <div>
+      <RunTrailStrip trail={data.runTrail ?? null} itemId={item.id} />
       <PageHeader
         title={item.title}
         subtitle={`#${item.id} · ${item.category || "Unclassified"} · ${

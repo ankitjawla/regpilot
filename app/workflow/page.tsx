@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { PageHeader, Badge } from "@/components/ui";
 import type { AgentConfig, WorkflowStep } from "@/lib/agents";
 import { JevPrimerCard } from "@/components/jev-primer";
@@ -13,6 +14,7 @@ import {
 } from "@/lib/workflow-layout";
 import { usePipelineRun } from "@/components/pipeline-run";
 import type { StageState } from "@/lib/pipeline-events";
+import type { RunTrail } from "@/lib/run-trail";
 
 type Health = {
   ok?: boolean;
@@ -36,16 +38,63 @@ export default function WorkflowPage() {
   const [error, setError] = useState("");
   const [sheetOpen, setSheetOpen] = useState(false);
   const { run, clearRun } = usePipelineRun();
+  const searchParams = useSearchParams();
+  const itemParam = searchParams.get("item");
+  const itemQuery =
+    itemParam && Number(itemParam) > 0 ? Number(itemParam) : null;
+  const [stored, setStored] = useState<{ id: number; trail: RunTrail | null } | null>(
+    null
+  );
+
+  const trailItemId =
+    itemQuery ??
+    (run && run.status !== "running" && run.itemId ? run.itemId : null);
+  const activeTrail =
+    stored && trailItemId != null && stored.id === trailItemId ? stored.trail : null;
+  const showingOtherItem = Boolean(
+    itemQuery && run?.itemId && itemQuery !== run.itemId && run.status !== "running"
+  );
+
+  useEffect(() => {
+    if (!trailItemId) return;
+    let cancelled = false;
+    const id = trailItemId;
+    fetch(`/api/detail?item_id=${id}`)
+      .then((r) => r.json())
+      .then((d: { runTrail?: RunTrail | null }) => {
+        if (!cancelled) setStored({ id, trail: d.runTrail ?? null });
+      })
+      .catch(() => {
+        if (!cancelled) setStored({ id, trail: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [trailItemId]);
+
   const stageView = useMemo(() => {
-    if (!run) return { states: null, details: null };
+    const live = run?.status === "running" && !showingOtherItem;
+    const useSession = Boolean(run) && !showingOtherItem;
+    const useStored = Boolean(activeTrail) && !live;
+    if (!useSession && !useStored) return { states: null, details: null };
     const states: Record<string, StageState> = {};
     const details: Record<string, string> = {};
-    for (const stage of run.stages) {
-      states[stage.id] = stage.state;
-      if (stage.detail) details[stage.id] = stage.detail;
+    const apply = (id: string, state: StageState, detail?: string) => {
+      states[id] = state;
+      if (detail) details[id] = detail;
+    };
+    if (useStored && activeTrail) {
+      for (const stage of activeTrail.stages) {
+        apply(stage.id, stage.state, stage.detail);
+      }
+    }
+    if (useSession && run) {
+      for (const stage of run.stages) {
+        apply(stage.id, stage.state, stage.detail);
+      }
     }
     return { states, details };
-  }, [run]);
+  }, [run, activeTrail, showingOtherItem]);
   const stageStates = stageView.states;
   const stageDetails = stageView.details;
 
@@ -71,9 +120,9 @@ export default function WorkflowPage() {
     };
   }, []);
 
-  // Demo pulse only when this tab has no live pipeline session.
+  // Demo pulse only when this tab has no live session and no saved trail.
   useEffect(() => {
-    if (!steps.length || run) return;
+    if (!steps.length || run || activeTrail) return;
     const path = PULSE_ORDER.filter(
       (id) =>
         steps.some((s) => s.id === id) ||
@@ -90,7 +139,7 @@ export default function WorkflowPage() {
       });
     }, 1400);
     return () => window.clearInterval(id);
-  }, [steps, run]);
+  }, [steps, run, activeTrail]);
 
   const activeStep = useMemo(
     () => resolveWorkflowStep(steps, activeId),
@@ -158,7 +207,34 @@ export default function WorkflowPage() {
         </div>
       )}
 
-      {run && (
+      {activeTrail && (!run || showingOtherItem) && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius)] border border-[var(--line)] bg-white px-4 py-3 shadow-[var(--shadow)]">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-mute)]">
+              Saved run
+            </div>
+            <p className="mt-1 text-sm font-semibold text-[var(--ink)]">
+              Item {trailItemId}
+              {activeTrail.gateStatus
+                ? ` · ${activeTrail.gateStatus.replace(/_/g, " ")}`
+                : ""}
+            </p>
+            <p className="text-xs text-[var(--ink-mute)]">
+              Human and export update when someone reviews or downloads the package.
+            </p>
+          </div>
+          {trailItemId != null && (
+            <Link
+              href={`/items/${trailItemId}`}
+              className="rounded-lg bg-[var(--ink)] px-3 py-2 text-xs font-semibold text-white"
+            >
+              Open package
+            </Link>
+          )}
+        </div>
+      )}
+
+      {run && !showingOtherItem && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius)] border border-[var(--line)] bg-white px-4 py-3 shadow-[var(--shadow)]">
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-mute)]">
@@ -270,7 +346,7 @@ export default function WorkflowPage() {
               <WorkflowCanvas
                 steps={steps}
                 activeId={activeId}
-                liveId={run ? null : liveId}
+                liveId={run || activeTrail ? null : liveId}
                 stageStates={stageStates}
                 stageDetails={stageDetails}
                 runtimeReady={runtimeReady}
