@@ -1,29 +1,46 @@
 <template>
-  <div id="root" data-composition-id="01-letter" data-width="1920" data-height="1080" data-duration="6.7">
-    <div class="clip" id="f1-bg" data-start="0" data-duration="6.7" data-track-index="0"></div>
-    <div class="clip" id="f1-stage" data-start="0" data-duration="6.7" data-track-index="1">
-      <div id="f1-cam">
-        <div id="f1-line">RegPilot</div>
+  <div id="root" data-composition-id="01-letter" data-width="1920" data-height="1080" data-duration="4.5">
+    <div class="clip" id="f1-bg" data-start="0" data-duration="4.5" data-track-index="0"></div>
+    <div class="clip" id="f1-stage" data-start="0" data-duration="4.5" data-track-index="1">
+      <div id="f1-block">
+        <div id="f1-l1">Six SARs were filed past <span id="f1-cite">sixty days</span>,</div>
+        <div id="f1-l2">with <span id="f1-gap"><span id="f1-g0">n</span><span id="f1-g1">o</span><span id="f1-g2">&nbsp;</span><span id="f1-g3">l</span><span id="f1-g4">o</span><span id="f1-g5">o</span><span id="f1-g6">k</span><span id="f1-g7">b</span><span id="f1-g8">a</span><span id="f1-g9">c</span><span id="f1-g10">k</span></span> and <span id="f1-haz">no escalation</span>.</div>
       </div>
     </div>
   </div>
   <style>
-    @font-face{font-family:Manrope;font-style:normal;font-weight:200 800;font-display:swap;src:url("assets/fonts/captured-a343f882a40d2cc9-s.p.3259ncl47-hqj.woff2") format("woff2")}
-    #root { width: 1920px; height: 1080px; position: relative; overflow: hidden; }
-    #f1-bg { position: absolute; inset: 0; background: #000000; }
-    #f1-stage { position: absolute; inset: 0; }
-    #f1-cam { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
-    #f1-line {
-      font-family: Manrope, sans-serif; font-weight: 500; font-size: 128px;
-      letter-spacing: -0.045em; line-height: 1; color: #f5f5f7;
+    @font-face {
+      font-family: Fraunces;
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("assets/fonts/captured-03bda585a99c6450-s.p.0glcd8n2pdab0.woff2") format("woff2");
     }
+    #root { width: 1920px; height: 1080px; position: relative; overflow: hidden; }
+    #f1-bg { position: absolute; inset: 0; background: #EEF2F6; }
+    #f1-stage { position: absolute; inset: 0; }
+    #f1-block { position: absolute; left: 295px; top: 352px; width: 1500px; }
+    #f1-l1, #f1-l2 {
+      font-family: Fraunces, Georgia, serif;
+      font-weight: 500;
+      font-size: 76px;
+      line-height: 1.16;
+      letter-spacing: -0.022em;
+      color: #0E1A2B;
+      white-space: nowrap;
+    }
+    #f1-l2 { margin-top: 12px; }
+    #f1-gap { padding: 0 0.22em; }
+    #f1-gap span { display: inline-block; }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
   <script>
     window.__timelines = window.__timelines || {};
+    gsap.set("#f1-l1", { autoAlpha: 0, y: 18 });
+    gsap.set("#f1-l2", { autoAlpha: 0, y: 18 });
     const tl = gsap.timeline({ paused: true });
-    tl.fromTo("#f1-cam", { scale: 1.03 }, { scale: 1, duration: 6, ease: "none" }, 0);
-    tl.fromTo("#f1-line", { autoAlpha: 0, y: 18 }, { autoAlpha: 1, y: 0, duration: 0.85, ease: "power3.out" }, 0.12);
+    tl.fromTo("#f1-l1", { autoAlpha: 0, y: 18 }, { autoAlpha: 1, y: 0, duration: 0.42, ease: "power2.out" }, 0.06);
+    tl.fromTo("#f1-l2", { autoAlpha: 0, y: 18 }, { autoAlpha: 1, y: 0, duration: 0.48, ease: "power2.out", immediateRender: false }, 0.58);
     window.__timelines["01-letter"] = tl;
   </script>
 </template>

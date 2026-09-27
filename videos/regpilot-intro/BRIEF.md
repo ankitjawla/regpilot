@@ -24,7 +24,7 @@ Direction chosen: the examination desk, not a feature list. Left behind: a purpl
 ## Customizations
 
 - On-screen lines carry the story if local voice cannot start. Do not invent a second product.
-- Restyle: Apple product film. Black field, one Manrope line, slow push, dissolves. No desk chrome.
+- Surprise cut: the letter under the lamp. One fictional BSA sentence on paper; a sage wash reads the line; sixty days and no lookback isolate in amber; no escalation is struck in coral; then a small RegPilot lockup.
 
 ## Notes
 

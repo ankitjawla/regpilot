@@ -1,41 +1,70 @@
 <template>
-  <div id="root" data-composition-id="03-regpilot" data-width="1920" data-height="1080" data-duration="7.7">
-    <div class="clip" id="f3-bg" data-start="0" data-duration="7.7" data-track-index="0"></div>
-    <div class="clip" id="f3-stage" data-start="0" data-duration="7.7" data-track-index="1">
-      <div id="f3-cam">
-        <div id="f3-stack" data-layout-allow-overlap>
-          <div class="word" id="f3-w1">Citation</div>
-          <div class="word" id="f3-w2">Gap</div>
-          <div class="word" id="f3-w3">Hazard</div>
-        </div>
+  <div id="root" data-composition-id="03-regpilot" data-width="1920" data-height="1080" data-duration="5">
+    <div class="clip" id="f3-bg" data-start="0" data-duration="5" data-track-index="0"></div>
+    <div class="clip" id="f3-stage" data-start="0" data-duration="5" data-track-index="1">
+      <div id="f3-lamp"></div>
+      <div id="f3-block">
+        <div id="f3-l1">Six SARs were filed past <span id="f3-cite">sixty days<span id="f3-rule"></span></span>,</div>
+        <div id="f3-l2">with <span id="f3-gap"><span id="f3-g0">n</span><span id="f3-g1">o</span><span id="f3-g2">&nbsp;</span><span id="f3-g3">l</span><span id="f3-g4">o</span><span id="f3-g5">o</span><span id="f3-g6">k</span><span id="f3-g7">b</span><span id="f3-g8">a</span><span id="f3-g9">c</span><span id="f3-g10">k</span></span> and <span id="f3-haz">no escalation</span>.</div>
       </div>
     </div>
   </div>
   <style>
-    @font-face{font-family:Manrope;font-style:normal;font-weight:200 800;font-display:swap;src:url("assets/fonts/captured-a343f882a40d2cc9-s.p.3259ncl47-hqj.woff2") format("woff2")}
+    @font-face {
+      font-family: Fraunces;
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("assets/fonts/captured-03bda585a99c6450-s.p.0glcd8n2pdab0.woff2") format("woff2");
+    }
     #root { width: 1920px; height: 1080px; position: relative; overflow: hidden; }
-    #f3-bg { position: absolute; inset: 0; background: #000000; }
+    #f3-bg { position: absolute; inset: 0; background: #EEF2F6; }
     #f3-stage { position: absolute; inset: 0; }
-    #f3-cam { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
-    #f3-stack { position: relative; width: 100%; height: 140px; }
-    .word {
-      position: absolute; left: 0; right: 0; top: 0; text-align: center;
-      font-family: Manrope, sans-serif; font-weight: 500; font-size: 120px;
-      letter-spacing: -0.045em; line-height: 1; color: #f5f5f7;
+    #f3-lamp {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 740px;
+      height: 520px;
+      border-radius: 50%;
+      background: radial-gradient(ellipse at center, rgba(210, 232, 228, 0.96) 0%, rgba(15, 118, 110, 0.20) 40%, rgba(15, 118, 110, 0.06) 60%, rgba(238, 242, 246, 0) 76%);
+      pointer-events: none;
+    }
+    #f3-block { position: absolute; left: 295px; top: 352px; width: 1500px; }
+    #f3-l1, #f3-l2 {
+      font-family: Fraunces, Georgia, serif;
+      font-weight: 500;
+      font-size: 76px;
+      line-height: 1.16;
+      letter-spacing: -0.022em;
+      color: #0E1A2B;
+      white-space: nowrap;
+    }
+    #f3-l2 { margin-top: 12px; }
+    #f3-gap { padding: 0 0.22em; }
+    #f3-gap span { display: inline-block; }
+    #f3-cite { position: relative; color: #B45309; }
+    #f3-rule {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      bottom: -0.12em;
+      height: 4px;
+      background: #B45309;
+      border-radius: 2px;
     }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
   <script>
     window.__timelines = window.__timelines || {};
-    gsap.set("#f3-w2", { autoAlpha: 0 });
-    gsap.set("#f3-w3", { autoAlpha: 0 });
+    gsap.set("#f3-lamp", { x: 934, y: 136, autoAlpha: 1 });
+    const gapGlyphs = ["#f3-g0", "#f3-g1", "#f3-g2", "#f3-g3", "#f3-g4", "#f3-g5", "#f3-g6", "#f3-g7", "#f3-g8", "#f3-g9", "#f3-g10"];
     const tl = gsap.timeline({ paused: true });
-    tl.fromTo("#f3-cam", { scale: 1.03 }, { scale: 1, duration: 7, ease: "none" }, 0);
-    tl.fromTo("#f3-w1", { autoAlpha: 0, y: 18 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: "power3.out" }, 0.12);
-    tl.to("#f3-w1", { autoAlpha: 0, duration: 0.4, ease: "power3.in" }, 2.15);
-    tl.fromTo("#f3-w2", { autoAlpha: 0, y: 18 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: "power3.out", immediateRender: false }, 2.4);
-    tl.to("#f3-w2", { autoAlpha: 0, duration: 0.4, ease: "power3.in" }, 4.4);
-    tl.fromTo("#f3-w3", { autoAlpha: 0, y: 18 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: "power3.out", immediateRender: false }, 4.65);
+    tl.fromTo("#f3-lamp", { x: 934, y: 136 }, { x: 324, y: 236, duration: 1.9, ease: "power2.inOut" }, 0.25);
+    tl.fromTo("#f3-gap", { color: "#0E1A2B" }, { color: "#B45309", duration: 0.55, ease: "power2.out", immediateRender: false }, 2.05);
+    gapGlyphs.forEach((sel, i) => {
+      tl.fromTo(sel, { x: 0 }, { x: (i - 5) * 2.2, duration: 0.8, ease: "power2.out", immediateRender: false }, 2.05);
+    });
     window.__timelines["03-regpilot"] = tl;
   </script>
 </template>

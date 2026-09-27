@@ -1,40 +1,131 @@
 <template>
-  <div id="root" data-composition-id="06-see-why" data-width="1920" data-height="1080">
+  <div id="root" data-composition-id="06-see-why" data-width="1920" data-height="1080" data-duration="4">
     <div class="clip" id="f6-bg" data-start="0" data-duration="4" data-track-index="0"></div>
     <div class="clip" id="f6-stage" data-start="0" data-duration="4" data-track-index="1">
-      <div id="f6-cam">
-        <div id="f6-lock">
-          <div id="f6-line">See why.</div>
-          <div id="f6-url">regpilot.vercel.app</div>
-        </div>
+      <div id="f6-lamp"></div>
+      <div id="f6-mark">STOPPED</div>
+      <div id="f6-block">
+        <div id="f6-l1">Six SARs were filed past <span id="f6-cite">sixty days<span id="f6-rule"></span></span>,</div>
+        <div id="f6-l2">with <span id="f6-gap"><span id="f6-g0">n</span><span id="f6-g1">o</span><span id="f6-g2">&nbsp;</span><span id="f6-g3">l</span><span id="f6-g4">o</span><span id="f6-g5">o</span><span id="f6-g6">k</span><span id="f6-g7">b</span><span id="f6-g8">a</span><span id="f6-g9">c</span><span id="f6-g10">k</span></span> and <span id="f6-haz">no escalation<span id="f6-strike"></span></span>.</div>
+      </div>
+      <div id="f6-lock">
+        <div id="f6-sig"></div>
+        <div id="f6-name">RegPilot</div>
+        <div id="f6-url">regpilot.vercel.app</div>
       </div>
     </div>
   </div>
   <style>
-    @font-face{font-family:Manrope;font-style:normal;font-weight:200 800;font-display:swap;src:url("assets/fonts/captured-a343f882a40d2cc9-s.p.3259ncl47-hqj.woff2") format("woff2")}
+    @font-face {
+      font-family: Fraunces;
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("assets/fonts/captured-03bda585a99c6450-s.p.0glcd8n2pdab0.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: Manrope;
+      font-style: normal;
+      font-weight: 200 800;
+      font-display: swap;
+      src: url("assets/fonts/captured-a343f882a40d2cc9-s.p.3259ncl47-hqj.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "IBM Plex Mono";
+      font-style: normal;
+      font-weight: 500;
+      font-display: swap;
+      src: url("assets/fonts/captured-effe91970fc4db64-s.p.28xcb7557rbh2.woff2") format("woff2");
+    }
     #root { width: 1920px; height: 1080px; position: relative; overflow: hidden; }
-    #f6-bg { position: absolute; inset: 0; background: #000000; }
+    #f6-bg { position: absolute; inset: 0; background: #EEF2F6; }
     #f6-stage { position: absolute; inset: 0; }
-    #f6-cam { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
-    #f6-lock { text-align: center; }
-    #f6-line {
-      font-family: Manrope, sans-serif; font-weight: 500; font-size: 112px;
-      letter-spacing: -0.045em; line-height: 1; color: #f5f5f7;
+    #f6-lamp {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 740px;
+      height: 520px;
+      border-radius: 50%;
+      background: radial-gradient(ellipse at center, rgba(210, 232, 228, 0.96) 0%, rgba(15, 118, 110, 0.20) 40%, rgba(15, 118, 110, 0.06) 60%, rgba(238, 242, 246, 0) 76%);
+      pointer-events: none;
+    }
+    #f6-mark {
+      position: absolute;
+      left: 295px;
+      top: 292px;
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+      font-weight: 500;
+      font-size: 14px;
+      letter-spacing: 0.28em;
+      color: #0F766E;
+      line-height: 1;
+    }
+    #f6-block { position: absolute; left: 295px; top: 352px; width: 1500px; }
+    #f6-l1, #f6-l2 {
+      font-family: Fraunces, Georgia, serif;
+      font-weight: 500;
+      font-size: 76px;
+      line-height: 1.16;
+      letter-spacing: -0.022em;
+      color: #0E1A2B;
+      white-space: nowrap;
+    }
+    #f6-l2 { margin-top: 12px; }
+    #f6-gap span { display: inline-block; }
+    #f6-cite { position: relative; color: #B45309; }
+    #f6-rule {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      bottom: -0.12em;
+      height: 4px;
+      background: #B45309;
+      border-radius: 2px;
+    }
+    #f6-gap { color: #B45309; padding: 0 0.22em; }
+    #f6-haz { position: relative; color: #B91C1C; }
+    #f6-strike {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      top: 0.56em;
+      height: 4px;
+      background: #B91C1C;
+      border-radius: 2px;
+    }
+    #f6-lock { position: absolute; left: 295px; top: 690px; }
+    #f6-sig { width: 36px; height: 2px; background: #0F766E; margin-bottom: 16px; }
+    #f6-name {
+      font-family: Manrope, sans-serif;
+      font-weight: 500;
+      font-size: 34px;
+      letter-spacing: -0.03em;
+      color: #0E1A2B;
+      line-height: 1;
     }
     #f6-url {
-      margin-top: 28px;
-      font-family: Manrope, sans-serif; font-weight: 400; font-size: 28px;
-      letter-spacing: -0.01em; color: #86868b;
+      margin-top: 8px;
+      font-family: Manrope, sans-serif;
+      font-weight: 500;
+      font-size: 18px;
+      letter-spacing: 0.01em;
+      color: #0F766E;
+      line-height: 1;
     }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
   <script>
     window.__timelines = window.__timelines || {};
-    gsap.set("#f6-url", { autoAlpha: 0 });
+    gsap.set("#f6-lamp", { x: 941, y: 236, autoAlpha: 1 });
+    ["#f6-g0", "#f6-g1", "#f6-g2", "#f6-g3", "#f6-g4", "#f6-g5", "#f6-g6", "#f6-g7", "#f6-g8", "#f6-g9", "#f6-g10"].forEach((sel, i) => {
+      gsap.set(sel, { x: (i - 5) * 2.2 });
+    });
+    gsap.set("#f6-lock", { autoAlpha: 0, y: 12 });
+    gsap.set("#f6-sig", { scaleX: 0, transformOrigin: "left center" });
     const tl = gsap.timeline({ paused: true });
-    tl.fromTo("#f6-cam", { scale: 1.03 }, { scale: 1, duration: 4, ease: "none" }, 0);
-    tl.fromTo("#f6-line", { autoAlpha: 0, y: 18 }, { autoAlpha: 1, y: 0, duration: 0.85, ease: "power3.out" }, 0.12);
-    tl.fromTo("#f6-url", { autoAlpha: 0, y: 10 }, { autoAlpha: 1, y: 0, duration: 0.6, ease: "power3.out", immediateRender: false }, 1.05);
+    tl.fromTo("#f6-lock", { autoAlpha: 0, y: 12 }, { autoAlpha: 1, y: 0, duration: 0.6, ease: "power2.out" }, 0.4);
+    tl.fromTo("#f6-sig", { scaleX: 0 }, { scaleX: 1, duration: 0.4, ease: "power2.out", immediateRender: false }, 0.55);
     window.__timelines["06-see-why"] = tl;
   </script>
 </template>
