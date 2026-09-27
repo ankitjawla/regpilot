@@ -24,6 +24,7 @@ Direction chosen: the examination desk, not a feature list. Left behind: a purpl
 ## Customizations
 
 - On-screen lines carry the story if local voice cannot start. Do not invent a second product.
+- Restyle: Apple product film. Black field, one Manrope line, slow push, dissolves. No desk chrome.
 
 ## Notes
 
